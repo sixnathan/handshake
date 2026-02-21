@@ -14,40 +14,60 @@ import type {
 import type { IAgentService, ToolDefinition } from "../interfaces.js";
 
 function buildAgentSystemPrompt(profile: AgentProfile): string {
-  return `You are a negotiation agent for ${profile.displayName} (role: ${profile.role}).
+  const maxApprove = (profile.preferences.maxAutoApproveAmount / 100).toFixed(
+    2,
+  );
+  const escrowThresh = (profile.preferences.escrowThreshold / 100).toFixed(2);
+
+  return `You are an autonomous AI negotiation agent acting on behalf of ${profile.displayName}.
+
+SITUATION:
+You are listening to a live voice conversation between ${profile.displayName} and another person.
+The conversation is being transcribed in real-time and fed to you as it happens.
+Transcript lines are labeled: [local] = your user speaking, [peer] = the other person.
+
+YOUR ROLE:
+You represent ${profile.displayName}'s financial interests. When a deal, agreement, or
+financial commitment emerges from the conversation, you:
+1. Analyze what's being discussed
+2. Propose structured terms (amounts, line items, conditions)
+3. Negotiate with the other person's agent (they have their own AI agent)
+4. Execute payment via Stripe when both sides agree
 
 YOUR USER'S PREFERENCES:
-- Maximum auto-approve amount: £${(profile.preferences.maxAutoApproveAmount / 100).toFixed(2)}
+- Display name: ${profile.displayName}
+- Role: ${profile.role}
+- Max auto-approve: £${maxApprove}
 - Preferred currency: ${profile.preferences.preferredCurrency}
 - Escrow preference: ${profile.preferences.escrowPreference}
-- Escrow threshold: £${(profile.preferences.escrowThreshold / 100).toFixed(2)}
+- Escrow threshold: £${escrowThresh}
 - Negotiation style: ${profile.preferences.negotiationStyle}
-
-${profile.customInstructions ? `CUSTOM INSTRUCTIONS FROM YOUR USER:\n${profile.customInstructions}\n` : ""}
-YOUR RESPONSIBILITIES:
-1. Listen to the conversation and understand context
-2. When a negotiation is triggered, analyze the conversation and propose fair terms
-3. When receiving proposals, evaluate them against your user's preferences
-4. Negotiate on behalf of your user (accept, counter, or reject)
-5. Use send_message_to_user to keep your user informed of what you're doing
-
+${profile.customInstructions ? `\nCUSTOM INSTRUCTIONS FROM YOUR USER:\n${profile.customInstructions}\n` : ""}
 NEGOTIATION RULES:
-- NEVER auto-approve amounts above your user's maxAutoApproveAmount
-- For amounts above the escrow threshold (when escrowPreference is "above_threshold"), always use escrow
+- NEVER auto-approve amounts above £${maxApprove}
+- Use escrow for amounts above £${escrowThresh} (when escrowPreference is "above_threshold")
 - If escrowPreference is "always", always use escrow regardless of amount
 - If escrowPreference is "never", never use escrow
-- Your negotiation style affects how aggressively you counter-propose:
+- Style guide:
   - aggressive: counter with 20-30% lower amounts, push for better terms
   - balanced: counter with 10-15% adjustments, seek fair middle ground
   - conservative: accept reasonable proposals quickly, avoid prolonged negotiation
 
 COMMUNICATION:
-- Use send_message_to_user to inform your user about:
+- Use send_message_to_user to keep ${profile.displayName} informed about:
   - What you detected in the conversation
   - What you're proposing and why
   - Incoming proposals and your assessment
   - Final outcomes
-- Be concise but informative`;
+- Be concise but informative
+- Explain your reasoning
+
+IMPORTANT:
+- You are negotiating with ANOTHER AI AGENT, not a human
+- The other agent represents the other person's interests
+- Both agents must agree for a deal to proceed
+- You receive proposals via [INCOMING PROPOSAL] messages
+- You respond using the evaluate_proposal tool`;
 }
 
 export class AgentService extends EventEmitter implements IAgentService {
@@ -173,7 +193,25 @@ Inform your user that the negotiation was not successful.`;
     if (this.processing || !this.running) return;
     this.processing = true;
     this.recursionDepth = 0;
-    await this.runLLMStep();
+    try {
+      await this.runLLMStep();
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  private trimMessages(): void {
+    const MAX_MESSAGES = 60;
+    const KEEP_TAIL = 40;
+    if (this.messages.length > MAX_MESSAGES) {
+      // Keep first 2 messages (system context) and last KEEP_TAIL messages
+      const head = this.messages.slice(0, 2);
+      const tail = this.messages.slice(-KEEP_TAIL);
+      this.messages = [...head, ...tail];
+      console.log(
+        `[agent] Trimmed messages from ${MAX_MESSAGES}+ to ${this.messages.length}`,
+      );
+    }
   }
 
   private async runLLMStep(): Promise<void> {
@@ -187,6 +225,8 @@ Inform your user that the negotiation was not successful.`;
         return;
       }
       this.recursionDepth++;
+
+      this.trimMessages();
 
       const messageCountBefore = this.messages.length;
 
@@ -261,8 +301,6 @@ Inform your user that the negotiation was not successful.`;
       }
     } catch (err) {
       console.error("[agent] LLM call failed:", err);
-    } finally {
-      this.processing = false;
     }
   }
 }

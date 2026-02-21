@@ -23,91 +23,484 @@ body {
   justify-content: center;
   min-height: 100vh;
   padding: 24px;
-  overflow-y: auto;
+  position: relative;
 }
-#setup h1 { color: #2d9c3c; margin-bottom: 24px; font-size: 32px; }
-#setup h3 { color: #888; margin: 16px 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
-#setup form { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 400px; }
-#setup input, #setup select, #setup textarea {
+#setup h1 { color: #2d9c3c; margin-bottom: 4px; font-size: 32px; }
+#setup .tagline { color: #666; font-size: 13px; margin-bottom: 28px; }
+#setup form {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 340px;
+}
+#setup input {
   background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
-  padding: 10px 14px; font-size: 14px; font-family: inherit; border-radius: 4px;
+  padding: 12px 14px; font-size: 15px; font-family: inherit; border-radius: 6px;
 }
-#setup textarea { min-height: 60px; resize: vertical; }
-#setup label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa; }
-#setup label input, #setup label select { flex: 1; }
-#setup button {
-  background: #2d9c3c; color: white; border: none; padding: 12px;
-  font-size: 16px; font-family: inherit; border-radius: 4px; cursor: pointer; margin-top: 16px;
+#setup input:focus { border-color: #2d9c3c; outline: none; }
+.room-row { display: flex; gap: 8px; }
+.room-row input { flex: 1; }
+#copyRoomBtn {
+  background: #1a1a1a; border: 1px solid #333; color: #888;
+  width: 42px; border-radius: 6px; cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.2s;
 }
-#setup button:hover { background: #238b31; }
+#copyRoomBtn:hover { color: #e0e0e0; border-color: #555; }
+#setup button[type="submit"] {
+  background: #2d9c3c; color: white; border: none; padding: 14px;
+  font-size: 16px; font-family: inherit; border-radius: 6px; cursor: pointer; margin-top: 4px;
+}
+#setup button[type="submit"]:hover { background: #238b31; }
 #setupStatus { color: #e74c3c; font-size: 14px; margin-top: 8px; }
+#gearBtn {
+  position: absolute; top: 20px; right: 20px;
+  background: none; border: 1px solid #333; color: #888;
+  width: 38px; height: 38px; border-radius: 6px; cursor: pointer;
+  font-size: 18px; display: flex; align-items: center; justify-content: center;
+  transition: color 0.2s, border-color 0.2s;
+}
+#gearBtn:hover { color: #e0e0e0; border-color: #555; }
+
+/* Settings drawer */
+#drawerOverlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 200;
+}
+#drawerOverlay.open { display: block; }
+#settingsDrawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 380px; max-width: 90vw; z-index: 201;
+  background: #111; border-left: 1px solid #222;
+  transform: translateX(100%); transition: transform 0.3s ease;
+  display: flex; flex-direction: column;
+}
+#settingsDrawer.open { transform: translateX(0); }
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #222;
+}
+.drawer-header h2 { font-size: 16px; color: #e0e0e0; }
+#closeDrawerBtn {
+  background: none; border: none; color: #888; font-size: 22px; cursor: pointer;
+  padding: 0 4px; line-height: 1;
+}
+#closeDrawerBtn:hover { color: #e0e0e0; }
+.drawer-body {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.drawer-body h3 {
+  color: #888; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 1px; margin: 12px 0 4px; padding-top: 8px; border-top: 1px solid #1a1a1a;
+}
+.drawer-body h3:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+.drawer-body input, .drawer-body select, .drawer-body textarea {
+  background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
+  padding: 10px 12px; font-size: 14px; font-family: inherit; border-radius: 6px;
+  width: 100%;
+}
+.drawer-body input:focus, .drawer-body select:focus, .drawer-body textarea:focus {
+  border-color: #2d9c3c; outline: none;
+}
+.drawer-body textarea { min-height: 60px; resize: vertical; }
+.drawer-body label {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa;
+}
+.drawer-body label input, .drawer-body label select { flex: 1; }
+.currency-prefix {
+  display: flex; align-items: center; gap: 0; font-size: 13px; color: #aaa;
+}
+.currency-prefix span {
+  background: #1a1a1a; border: 1px solid #333; border-right: none;
+  padding: 10px 8px 10px 12px; border-radius: 6px 0 0 6px; color: #888;
+  font-size: 14px; min-width: 24px; text-align: center;
+}
+.currency-prefix input {
+  border-radius: 0 6px 6px 0 !important; flex: 1;
+}
 
 /* Session screen */
 #session { display: none; height: 100vh; flex-direction: column; }
 
-/* Status bar */
-.status-bar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 16px; background: #111; border-bottom: 1px solid #222; font-size: 14px;
+/* ── Top Bar ────────────────────────────────── */
+.top-bar {
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  z-index: 10;
 }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; background: #f5a623; }
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.status-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #f5a623;
+  flex-shrink: 0;
+}
 .status-dot.connected { background: #2d9c3c; }
 .status-dot.error { background: #e74c3c; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.status-dot.waiting { animation: pulse 1.5s infinite; }
-
-/* Panel grid */
-.panels {
-  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
-  flex: 1; gap: 1px; background: #222; overflow: hidden;
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.status-dot.waiting { animation: pulse-dot 1.5s infinite; }
+#peerName {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e0e0e0;
 }
-.panel { background: #0a0a0a; display: flex; flex-direction: column; overflow: hidden; }
-.panel-header {
-  padding: 8px 12px; background: #111; border-bottom: 1px solid #222;
-  font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #666;
+.top-bar-center {
+  flex: 1;
+  text-align: center;
 }
-.panel-content { flex: 1; overflow-y: auto; padding: 8px 12px; }
+#callTimer {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: #888;
+  letter-spacing: 1px;
+}
+.top-bar-right {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+#expandBtn {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+#expandBtn:hover { background: #222; color: #e0e0e0; }
+#audioToggleBtn {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #888;
+  width: 36px; height: 36px;
+  font-size: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  margin-right: 8px;
+  transition: color 0.15s, border-color 0.15s;
+  position: relative;
+}
+#audioToggleBtn:hover { color: #e0e0e0; border-color: #555; }
+#audioToggleBtn.unmuted { color: #2d9c3c; border-color: #2d9c3c; }
 
-/* Transcript */
-.transcript-entry { margin-bottom: 8px; line-height: 1.4; }
-.speaker-local { color: #2d9c3c; font-weight: bold; }
-.speaker-peer { color: #3498db; font-weight: bold; }
-.transcript-partial { color: #666; font-style: italic; margin-bottom: 4px; }
+/* ── Call Center (default view) ──────────────── */
+.call-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+.pulse-ring {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid #2d9c3c;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pulse-ring::before,
+.pulse-ring::after {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid #2d9c3c;
+  animation: pulse-ring-anim 2.5s ease-out infinite;
+}
+.pulse-ring::after {
+  animation-delay: 1.25s;
+}
+@keyframes pulse-ring-anim {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.pulse-ring-inner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #2d9c3c;
+}
+#callStatusText {
+  font-size: 16px;
+  color: #666;
+  letter-spacing: 1px;
+}
 
-/* Agent */
-.agent-response { margin-bottom: 8px; padding: 6px 8px; background: #1a1a2e; border-radius: 4px; }
-.agent-tool { margin-bottom: 8px; padding: 6px 8px; border-left: 3px solid #8e44ad; background: #1a1a1a; }
-.tool-name { color: #8e44ad; font-weight: bold; font-size: 12px; }
-.tool-args { color: #888; font-size: 11px; white-space: pre-wrap; }
+/* ── Expanded View ──────────────────────────── */
+.expanded-view {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #0a0a0a;
+  z-index: 50;
+  flex-direction: column;
+}
+.expanded-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #111;
+  border-bottom: 1px solid #222;
+}
+.expanded-header h2 {
+  font-size: 16px;
+  color: #e0e0e0;
+  font-weight: 600;
+}
+#collapseBtn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+#collapseBtn:hover { color: #e0e0e0; }
+.expanded-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
 
-/* Negotiation */
-.negotiation-entry { margin-bottom: 8px; padding: 8px; border-radius: 4px; }
-.negotiation-proposed { border: 1px solid #f5a623; background: #1a1500; }
-.negotiation-countering { border: 1px solid #3498db; background: #0a1a2a; }
-.negotiation-accepted { border: 1px solid #2d9c3c; background: #0a1a0a; }
-.negotiation-rejected { border: 1px solid #e74c3c; background: #1a0a0a; }
-.negotiation-expired { border: 1px solid #666; background: #111; }
-.negotiation-header { font-size: 12px; font-weight: bold; margin-bottom: 4px; }
-.negotiation-amount { color: #2d9c3c; font-size: 16px; font-weight: bold; margin: 4px 0; }
-.negotiation-entry ul { margin-left: 16px; font-size: 12px; color: #aaa; }
+/* ── Dual-Column Transcript ─────────────────── */
+.transcript-dual {
+  flex: 1;
+  display: flex;
+  border-right: 1px solid #222;
+  overflow: hidden;
+}
+.transcript-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.transcript-col-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  background: #111;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+.transcript-col-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+.transcript-divider {
+  width: 1px;
+  background: #222;
+  flex-shrink: 0;
+}
 
-/* Execution */
-.execution-entry { margin-bottom: 8px; padding: 8px; border-radius: 4px; }
-.execution-confirmed { border: 1px solid #2d9c3c; background: #0a1a0a; }
-.execution-failed { border: 1px solid #e74c3c; background: #1a0a0a; }
-.execution-update { border: 1px solid #333; background: #111; }
-.execution-step { font-size: 12px; font-weight: bold; }
-.execution-status { font-size: 12px; color: #aaa; }
+/* Transcript bubbles */
+.t-bubble {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #141414;
+  border-left: 3px solid #2d9c3c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.t-bubble-peer {
+  border-left-color: #3498db;
+}
+.t-bubble-partial {
+  color: #555;
+  font-style: italic;
+  border-left-color: #333;
+  background: #0f0f0f;
+}
+.t-bubble-time {
+  display: block;
+  font-size: 10px;
+  color: #444;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
 
-/* Document overlay */
+/* ── Workflow Timeline ──────────────────────── */
+.workflow-timeline {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workflow-timeline-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  background: #111;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+#timelineContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px 16px 32px;
+  position: relative;
+}
+#timelineContent::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #222;
+}
+
+/* Timeline nodes */
+.tl-node {
+  position: relative;
+  padding: 0 0 16px 20px;
+}
+.tl-dot {
+  position: absolute;
+  left: -16px;
+  top: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #444;
+  background: #0a0a0a;
+}
+.tl-text {
+  font-size: 13px;
+  color: #ccc;
+  line-height: 1.4;
+}
+.tl-time {
+  font-size: 10px;
+  color: #444;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Timeline node type colors */
+.tl-detect .tl-dot { border-color: #f5a623; background: #2a1f00; }
+.tl-propose .tl-dot { border-color: #3498db; background: #0a1a2a; }
+.tl-receive .tl-dot { border-color: #3498db; background: #0a1a2a; }
+.tl-counter .tl-dot { border-color: #f5a623; background: #2a1f00; }
+.tl-accept .tl-dot { border-color: #2d9c3c; background: #0a1a0a; }
+.tl-sign .tl-dot { border-color: #2d9c3c; background: #0a1a0a; }
+.tl-pay .tl-dot { border-color: #2d9c3c; background: #0a1a0a; }
+.tl-reject .tl-dot { border-color: #e74c3c; background: #1a0a0a; }
+.tl-doc .tl-dot { border-color: #8e44ad; background: #1a0a1a; }
+.tl-tool .tl-dot { border-color: #8e44ad; background: #1a0a1a; }
+.tl-message .tl-dot { border-color: #555; background: #111; }
+
+/* ── Bottom Sheet ───────────────────────────── */
+.bottom-sheet {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  border-radius: 16px 16px 0 0;
+  z-index: 80;
+  transform: translateY(100%);
+  transition: transform 0.3s ease-out;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.bottom-sheet.visible {
+  transform: translateY(0);
+}
+.handle-bar {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  cursor: pointer;
+}
+.handle-bar::after {
+  content: "";
+  width: 40px;
+  height: 4px;
+  background: #444;
+  border-radius: 2px;
+}
+.bottom-sheet-content {
+  padding: 0 20px 24px;
+}
+#sheetDocTitle {
+  font-size: 18px;
+  font-weight: bold;
+  color: #e0e0e0;
+  margin-bottom: 8px;
+}
+#sheetDocSummary {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+#sheetSigStatus {
+  font-size: 12px;
+  color: #f5a623;
+  margin-bottom: 16px;
+}
+.sheet-buttons {
+  display: flex;
+  gap: 10px;
+}
+.sign-btn {
+  flex: 1;
+  background: #2d9c3c;
+  color: white;
+  border: none;
+  padding: 14px;
+  font-size: 16px;
+  font-family: inherit;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.sign-btn:hover { background: #238b31; }
+.sign-btn:disabled { background: #333; cursor: default; color: #666; }
+.view-full-btn {
+  background: #222;
+  color: #aaa;
+  border: 1px solid #333;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-family: inherit;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.view-full-btn:hover { background: #2a2a2a; color: #e0e0e0; }
+
+/* ── Document Overlay (full modal) ──────────── */
 #documentOverlay {
   display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.8); z-index: 100;
+  background: rgba(0, 0, 0, 0.85); z-index: 100;
   justify-content: center; align-items: center;
 }
 #documentModal {
   background: #111; border: 1px solid #333; border-radius: 8px;
   padding: 24px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto;
+  position: relative;
 }
 #documentModal h2 { color: #2d9c3c; margin-bottom: 16px; }
 #documentContent { line-height: 1.6; margin-bottom: 16px; }
@@ -121,14 +514,26 @@ body {
 }
 #signBtn:disabled { background: #333; cursor: default; }
 #documentOverlay.completed #signatureStatus { color: #2d9c3c; }
-
-/* Mobile */
-@media (max-width: 900px) {
-  .panels { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+#closeDocBtn {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
 }
-@media (max-width: 600px) {
-  .panels { grid-template-columns: 1fr; grid-template-rows: repeat(4, 1fr); }
-  .panel { max-height: 25vh; }
+#closeDocBtn:hover { color: #e0e0e0; }
+
+/* ── Mobile ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .expanded-body { flex-direction: column; }
+  .transcript-dual { border-right: none; border-bottom: 1px solid #222; height: 50%; flex-shrink: 0; }
+  .workflow-timeline { height: 50%; }
+  .top-bar { padding: 10px 14px; }
+  #peerName { font-size: 14px; }
+  #callTimer { font-size: 16px; }
+  #expandBtn { padding: 4px 10px; font-size: 12px; }
 }
 </style>
 </head>
@@ -136,23 +541,34 @@ body {
 
 <!-- Setup Screen -->
 <div id="setup">
+  <button id="gearBtn" title="Settings">&#9881;</button>
   <h1>Handshake</h1>
+  <p class="tagline">Voice-powered agreements</p>
   <form id="profileForm">
     <input id="displayName" placeholder="Your name" required />
-    <input id="role" placeholder="Your role (e.g., landlord, plumber)" />
-    <textarea id="customInstructions" placeholder="Instructions for your AI agent (optional)"></textarea>
+    <div class="room-row">
+      <input id="roomCode" placeholder="Room code" />
+      <button type="button" id="copyRoomBtn" title="Copy room code">&#128203;</button>
+    </div>
+    <button type="submit">Join Room</button>
+  </form>
+  <p id="setupStatus"></p>
+</div>
+
+<!-- Settings Drawer Overlay -->
+<div id="drawerOverlay"></div>
+
+<!-- Settings Drawer -->
+<div id="settingsDrawer">
+  <div class="drawer-header">
+    <h2>Settings</h2>
+    <button id="closeDrawerBtn">&times;</button>
+  </div>
+  <div class="drawer-body">
+    <h3>Your Role</h3>
+    <input id="role" placeholder="e.g., landlord, plumber, freelancer" />
 
     <h3>Agent Preferences</h3>
-    <label>Max auto-approve: &pound;<input id="maxApprove" type="number" value="50" min="0" step="1" /></label>
-    <label>Currency: <select id="currency"><option value="gbp">GBP</option><option value="usd">USD</option><option value="eur">EUR</option></select></label>
-    <label>Escrow:
-      <select id="escrowPref">
-        <option value="above_threshold">Above threshold</option>
-        <option value="always">Always</option>
-        <option value="never">Never</option>
-      </select>
-    </label>
-    <label>Escrow threshold: &pound;<input id="escrowThreshold" type="number" value="100" min="0" step="1" /></label>
     <label>Style:
       <select id="negStyle">
         <option value="balanced">Balanced</option>
@@ -160,47 +576,109 @@ body {
         <option value="conservative">Conservative</option>
       </select>
     </label>
+    <label>Currency:
+      <select id="currency">
+        <option value="gbp">GBP</option>
+        <option value="usd">USD</option>
+        <option value="eur">EUR</option>
+      </select>
+    </label>
+    <label>Max auto-approve:
+      <div class="currency-prefix">
+        <span id="currencySymbol">&pound;</span>
+        <input id="maxApprove" type="number" value="50" min="0" step="1" />
+      </div>
+    </label>
+    <label>Escrow:
+      <select id="escrowPref">
+        <option value="above_threshold">Above threshold</option>
+        <option value="always">Always</option>
+        <option value="never">Never</option>
+      </select>
+    </label>
+    <label>Escrow threshold:
+      <div class="currency-prefix">
+        <span id="escrowSymbol">&pound;</span>
+        <input id="escrowThreshold" type="number" value="100" min="0" step="1" />
+      </div>
+    </label>
 
-    <h3>Payment (optional)</h3>
-    <input id="stripeId" placeholder="Stripe Connect account ID (acct_...)" />
+    <h3>Instructions</h3>
+    <textarea id="customInstructions" placeholder="Tell your agent how to negotiate for you..."></textarea>
+
+    <h3>Payment</h3>
+    <input id="stripeId" placeholder="Stripe Connect ID (acct_...)" />
     <input id="monzoToken" placeholder="Monzo access token" type="password" />
-
-    <h3>Room</h3>
-    <input id="roomCode" placeholder="Room code" />
-    <button type="submit">Join Room</button>
-  </form>
-  <p id="setupStatus"></p>
+  </div>
 </div>
 
 <!-- Session Screen -->
 <div id="session" style="display: none;">
-  <div class="status-bar">
-    <div class="status-dot waiting" id="statusDot"></div>
-    <span id="roomDisplay"></span>
-    <span id="statusText">Waiting for partner...</span>
-  </div>
-  <div class="panels">
-    <div class="panel">
-      <div class="panel-header">Transcript</div>
-      <div class="panel-content" id="transcriptPanel"></div>
+
+  <!-- Default View -->
+  <div id="defaultView" style="display:flex; flex-direction:column; flex:1;">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="status-dot waiting" id="statusDot"></div>
+        <span id="peerName">Waiting for partner...</span>
+      </div>
+      <div class="top-bar-center">
+        <span id="callTimer">00:00</span>
+      </div>
+      <div class="top-bar-right">
+        <button id="audioToggleBtn" title="Audio from peer is muted">&#128263;</button>
+        <button id="expandBtn">Details</button>
+      </div>
     </div>
-    <div class="panel">
-      <div class="panel-header">Agent</div>
-      <div class="panel-content" id="agentPanel"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-header">Negotiation</div>
-      <div class="panel-content" id="negotiationPanel"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-header">Execution</div>
-      <div class="panel-content" id="executionPanel"></div>
+    <div class="call-center">
+      <div class="pulse-ring"><div class="pulse-ring-inner"></div></div>
+      <div id="callStatusText">Listening...</div>
     </div>
   </div>
 
-  <!-- Document overlay -->
+  <!-- Expanded View -->
+  <div id="expandedView" class="expanded-view">
+    <div class="expanded-header">
+      <h2>Session Details</h2>
+      <button id="collapseBtn">&times;</button>
+    </div>
+    <div class="expanded-body">
+      <div class="transcript-dual">
+        <div class="transcript-col">
+          <div class="transcript-col-header" id="colHeaderA">You</div>
+          <div class="transcript-col-content" id="colContentA"></div>
+        </div>
+        <div class="transcript-divider"></div>
+        <div class="transcript-col">
+          <div class="transcript-col-header" id="colHeaderB">Peer</div>
+          <div class="transcript-col-content" id="colContentB"></div>
+        </div>
+      </div>
+      <div class="workflow-timeline">
+        <div class="workflow-timeline-header">Agent Timeline</div>
+        <div id="timelineContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Sheet (document summary) -->
+  <div id="bottomSheet" class="bottom-sheet">
+    <div class="handle-bar" id="sheetHandle"></div>
+    <div class="bottom-sheet-content">
+      <div id="sheetDocTitle"></div>
+      <div id="sheetDocSummary"></div>
+      <div id="sheetSigStatus"></div>
+      <div class="sheet-buttons">
+        <button class="sign-btn" id="docSignBtn">Sign Agreement</button>
+        <button class="view-full-btn" id="docViewFull">View Full</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document Overlay (full modal) -->
   <div id="documentOverlay" style="display: none;">
     <div id="documentModal">
+      <button id="closeDocBtn">&times;</button>
       <h2 id="documentTitle"></h2>
       <div id="documentContent"></div>
       <div id="signatureStatus"></div>
@@ -272,6 +750,492 @@ function generateUserId(name) {
   return `${sanitized}-${suffix}`;
 }
 
+// ── Utilities ────────────────────────────────
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function autoScroll(container) {
+  const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  if (isNearBottom) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function markdownToHtml(md) {
+  return escapeHtml(md)
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>")
+    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
+    .replace(/\n\n/g, "<br><br>")
+    .replace(/\n/g, "<br>");
+}
+
+function derivePeerName(userId) {
+  const seg = userId.split("-")[0] || userId;
+  return seg.charAt(0).toUpperCase() + seg.slice(1);
+}
+
+// ── Session State ────────────────────────────
+
+let myUserId = null;
+let myDisplayName = null;
+let peerDisplayName = null;
+let peerUserId = null;
+let callStartTime = null;
+let callTimerInterval = null;
+let expandedViewOpen = false;
+let audioRelayEnabled = false;
+
+const transcriptBuffer = [];
+const timelineNodes = [];
+let currentDocument = null;
+let panelWsRef = null;
+
+// ── Call Timer ───────────────────────────────
+
+function startCallTimer() {
+  if (callTimerInterval) return;
+  callStartTime = Date.now();
+  callTimerInterval = setInterval(updateCallTimer, 1000);
+  updateCallTimer();
+}
+
+function updateCallTimer() {
+  const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+  const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const secs = String(elapsed % 60).padStart(2, "0");
+  document.getElementById("callTimer").textContent = `${mins}:${secs}`;
+}
+
+// ── Expanded View Toggle ─────────────────────
+
+function openExpandedView() {
+  expandedViewOpen = true;
+  const el = document.getElementById("expandedView");
+  el.style.display = "flex";
+  renderFullTranscript();
+  renderFullTimeline();
+  autoScroll(document.getElementById("colContentA"));
+  autoScroll(document.getElementById("colContentB"));
+  autoScroll(document.getElementById("timelineContent"));
+}
+
+function closeExpandedView() {
+  expandedViewOpen = false;
+  document.getElementById("expandedView").style.display = "none";
+}
+
+document.getElementById("expandBtn").addEventListener("click", openExpandedView);
+document.getElementById("collapseBtn").addEventListener("click", closeExpandedView);
+
+// ── Audio Relay Toggle ───────────────────────
+
+document.getElementById("audioToggleBtn").addEventListener("click", () => {
+  audioRelayEnabled = !audioRelayEnabled;
+  const btn = document.getElementById("audioToggleBtn");
+  if (audioRelayEnabled) {
+    btn.innerHTML = "&#128264;"; // speaker with sound waves
+    btn.classList.add("unmuted");
+    btn.title = "Audio from peer is playing";
+  } else {
+    btn.innerHTML = "&#128263;"; // speaker with X (muted)
+    btn.classList.remove("unmuted");
+    btn.title = "Audio from peer is muted";
+  }
+});
+
+// ── Rendering Helpers ────────────────────────
+
+function renderTranscriptEntry(entry) {
+  const isLocal = entry.isLocal;
+  const col = isLocal
+    ? document.getElementById("colContentA")
+    : document.getElementById("colContentB");
+
+  const div = document.createElement("div");
+  div.className = "t-bubble" + (isLocal ? "" : " t-bubble-peer") + (entry.isPartial ? " t-bubble-partial" : "");
+  div.dataset.ts = String(entry.timestamp);
+  if (entry.isPartial) div.dataset.partialSpeaker = entry.speaker;
+
+  const text = document.createElement("span");
+  text.textContent = entry.text;
+  div.appendChild(text);
+
+  if (!entry.isPartial) {
+    const time = document.createElement("span");
+    time.className = "t-bubble-time";
+    time.textContent = formatTime(entry.timestamp);
+    div.appendChild(time);
+  }
+
+  // Insert in timestamp order
+  const existing = col.querySelectorAll(".t-bubble:not(.t-bubble-partial)");
+  let inserted = false;
+  if (!entry.isPartial) {
+    for (let i = existing.length - 1; i >= 0; i--) {
+      if (Number(existing[i].dataset.ts) <= entry.timestamp) {
+        existing[i].after(div);
+        inserted = true;
+        break;
+      }
+    }
+  }
+  if (!inserted) col.appendChild(div);
+
+  autoScroll(col);
+}
+
+function renderFullTranscript() {
+  document.getElementById("colContentA").innerHTML = "";
+  document.getElementById("colContentB").innerHTML = "";
+  for (const entry of transcriptBuffer) {
+    if (!entry.isPartial) renderTranscriptEntry(entry);
+  }
+}
+
+function renderTimelineNode(node) {
+  const container = document.getElementById("timelineContent");
+  const div = document.createElement("div");
+  div.className = `tl-node tl-${node.type}`;
+
+  const dot = document.createElement("div");
+  dot.className = "tl-dot";
+
+  const text = document.createElement("div");
+  text.className = "tl-text";
+  text.textContent = node.text;
+
+  const time = document.createElement("div");
+  time.className = "tl-time";
+  time.textContent = formatTime(node.timestamp);
+
+  div.appendChild(dot);
+  div.appendChild(text);
+  div.appendChild(time);
+  container.appendChild(div);
+  autoScroll(container);
+}
+
+function renderFullTimeline() {
+  document.getElementById("timelineContent").innerHTML = "";
+  for (const node of timelineNodes) {
+    renderTimelineNode(node);
+  }
+}
+
+// ── Message Handlers ─────────────────────────
+
+function handleTranscript(msg, userId) {
+  const entry = msg.entry;
+  const isLocal = entry.speaker === userId || entry.source === "local";
+
+  if (!entry.isFinal) {
+    // Handle partials — update or create temporary bubble
+    if (expandedViewOpen) {
+      const col = isLocal
+        ? document.getElementById("colContentA")
+        : document.getElementById("colContentB");
+      let partial = col.querySelector(`[data-partial-speaker="${entry.speaker}"]`);
+      if (!partial) {
+        renderTranscriptEntry({
+          speaker: entry.speaker,
+          text: entry.text + "...",
+          timestamp: entry.timestamp || Date.now(),
+          isLocal,
+          isPartial: true,
+        });
+      } else {
+        partial.querySelector("span").textContent = entry.text + "...";
+      }
+    }
+    return;
+  }
+
+  // Remove partial for this speaker
+  if (expandedViewOpen) {
+    const col = isLocal
+      ? document.getElementById("colContentA")
+      : document.getElementById("colContentB");
+    const partial = col.querySelector(`[data-partial-speaker="${entry.speaker}"]`);
+    if (partial) partial.remove();
+  }
+
+  // Buffer final entry
+  const bufferEntry = {
+    speaker: entry.speaker,
+    text: entry.text,
+    timestamp: entry.timestamp || Date.now(),
+    isLocal,
+    isPartial: false,
+  };
+  transcriptBuffer.push(bufferEntry);
+
+  // Render if expanded
+  if (expandedViewOpen) {
+    renderTranscriptEntry(bufferEntry);
+  }
+}
+
+function handleAgent(msg) {
+  let type = "message";
+  let text = msg.text;
+
+  if (text.startsWith("[Tool:")) {
+    type = "tool";
+    const nameMatch = text.match(/\[Tool: (.+?)\]/);
+    const toolName = nameMatch ? nameMatch[1] : "unknown";
+    const result = text.replace(/\[Tool: .+?\] ?/, "");
+    text = `${toolName}: ${result}`;
+  } else if (/\[Smart Detection\].*TRIGGERED/i.test(text)) {
+    type = "detect";
+  }
+
+  // Truncate to ~100 chars
+  if (text.length > 100) text = text.slice(0, 97) + "...";
+
+  const node = { type, text, timestamp: Date.now() };
+  timelineNodes.push(node);
+
+  if (expandedViewOpen) {
+    renderTimelineNode(node);
+  }
+}
+
+function handleNegotiation(msg) {
+  const neg = msg.negotiation;
+  const statusMap = {
+    proposed: "propose",
+    countering: "counter",
+    accepted: "accept",
+    rejected: "reject",
+    executing: "pay",
+  };
+  const type = statusMap[neg.status] || "message";
+  const amount = neg.currentProposal
+    ? ` \u00A3${(neg.currentProposal.totalAmount / 100).toFixed(2)}`
+    : "";
+  const text = `${neg.status.toUpperCase()} (Round ${neg.rounds.length}/${neg.maxRounds})${amount}`;
+
+  const node = { type, text, timestamp: Date.now() };
+  timelineNodes.push(node);
+
+  if (expandedViewOpen) {
+    renderTimelineNode(node);
+  }
+
+  // Update default view status text
+  const statusText = document.getElementById("callStatusText");
+  switch (neg.status) {
+    case "proposed": statusText.textContent = "Negotiating..."; break;
+    case "countering": statusText.textContent = "Counter-proposal..."; break;
+    case "accepted": statusText.textContent = "Agreement reached"; break;
+    case "rejected": statusText.textContent = "Proposal rejected"; break;
+    case "executing": statusText.textContent = "Processing payment..."; break;
+  }
+}
+
+function handleExecution(msg) {
+  const isSign = msg.step && msg.step.toLowerCase().includes("signature");
+  const type = isSign ? "sign" : "pay";
+  const text = `${msg.step}: ${msg.status}${msg.details ? " \u2014 " + msg.details : ""}`;
+
+  const node = { type, text: text.length > 100 ? text.slice(0, 97) + "..." : text, timestamp: Date.now() };
+  timelineNodes.push(node);
+
+  if (expandedViewOpen) {
+    renderTimelineNode(node);
+  }
+}
+
+function handleDocument(msg, panelWs) {
+  const doc = msg.document;
+  currentDocument = doc;
+
+  // Add timeline node
+  const node = { type: "doc", text: `Document: ${doc.title}`, timestamp: Date.now() };
+  timelineNodes.push(node);
+  if (expandedViewOpen) renderTimelineNode(node);
+
+  // Populate bottom sheet
+  document.getElementById("sheetDocTitle").textContent = doc.title;
+  const summary = doc.content.length > 200 ? doc.content.slice(0, 200) + "..." : doc.content;
+  document.getElementById("sheetDocSummary").textContent = summary;
+  updateBottomSheetSignatureStatus(doc);
+
+  // Wire sign button
+  const signBtn = document.getElementById("docSignBtn");
+  signBtn.disabled = false;
+  signBtn.textContent = "Sign Agreement";
+  signBtn.onclick = () => {
+    panelWs.send(JSON.stringify({ type: "sign_document", documentId: doc.id }));
+    signBtn.disabled = true;
+    signBtn.textContent = "Signed \u2713";
+  };
+
+  // Wire view-full button
+  document.getElementById("docViewFull").onclick = () => {
+    showDocumentOverlay(doc, panelWs);
+  };
+
+  // Slide up
+  document.getElementById("bottomSheet").classList.add("visible");
+
+  // Also populate full overlay (for later)
+  populateDocumentOverlay(doc, panelWs);
+
+  // Update default view status
+  document.getElementById("callStatusText").textContent = "Document ready for signing";
+}
+
+function updateBottomSheetSignatureStatus(doc) {
+  const el = document.getElementById("sheetSigStatus");
+  const signed = doc.signatures.length;
+  const total = doc.parties.length;
+  el.textContent = `Signatures: ${signed}/${total}`;
+  if (doc.status === "fully_signed") {
+    el.textContent += " \u2014 Complete!";
+    el.style.color = "#2d9c3c";
+  }
+}
+
+function populateDocumentOverlay(doc, panelWs) {
+  document.getElementById("documentTitle").textContent = doc.title;
+  document.getElementById("documentContent").innerHTML = markdownToHtml(doc.content);
+  updateSignatureStatus(doc);
+
+  const signBtn = document.getElementById("signBtn");
+  signBtn.disabled = false;
+  signBtn.textContent = "Sign Agreement";
+  signBtn.onclick = () => {
+    panelWs.send(JSON.stringify({ type: "sign_document", documentId: doc.id }));
+    signBtn.disabled = true;
+    signBtn.textContent = "Signed \u2713";
+    // Also disable bottom sheet button
+    const sheetBtn = document.getElementById("docSignBtn");
+    sheetBtn.disabled = true;
+    sheetBtn.textContent = "Signed \u2713";
+  };
+}
+
+function showDocumentOverlay(doc, panelWs) {
+  populateDocumentOverlay(doc, panelWs);
+  document.getElementById("documentOverlay").style.display = "flex";
+}
+
+function updateSignatureStatus(doc) {
+  const el = document.getElementById("signatureStatus");
+  const signed = doc.signatures.length;
+  const total = doc.parties.length;
+  el.textContent = `Signatures: ${signed}/${total}`;
+  if (doc.status === "fully_signed") {
+    el.textContent += " \u2014 Agreement Complete!";
+    document.getElementById("documentOverlay").classList.add("completed");
+  }
+}
+
+function handleStatus(msg) {
+  const dot = document.getElementById("statusDot");
+  const peerNameEl = document.getElementById("peerName");
+  const statusText = document.getElementById("callStatusText");
+
+  if (msg.users && msg.users.length >= 2) {
+    dot.className = "status-dot connected";
+
+    // Find peer (the user that isn't me)
+    const peer = msg.users.find(u => u !== myUserId);
+    if (peer && peer !== peerUserId) {
+      peerUserId = peer;
+      peerDisplayName = derivePeerName(peer);
+      peerNameEl.textContent = peerDisplayName;
+      document.getElementById("colHeaderB").textContent = peerDisplayName;
+    }
+
+    statusText.textContent = "Listening...";
+    startCallTimer();
+  } else {
+    dot.className = "status-dot waiting";
+    peerNameEl.textContent = "Waiting for partner...";
+    statusText.textContent = "Waiting...";
+  }
+}
+
+function handleError(msg) {
+  document.getElementById("statusDot").className = "status-dot error";
+  document.getElementById("peerName").textContent = `Error: ${msg.message}`;
+  document.getElementById("callStatusText").textContent = "Connection error";
+}
+
+// ── Bottom Sheet Dismiss ─────────────────────
+
+document.getElementById("sheetHandle").addEventListener("click", () => {
+  document.getElementById("bottomSheet").classList.remove("visible");
+});
+
+// ── Document Overlay Close ───────────────────
+
+document.getElementById("closeDocBtn").addEventListener("click", () => {
+  document.getElementById("documentOverlay").style.display = "none";
+});
+
+// ── Settings Drawer ──────────────────────────
+
+function openDrawer() {
+  document.getElementById("drawerOverlay").classList.add("open");
+  document.getElementById("settingsDrawer").classList.add("open");
+}
+
+function closeDrawer() {
+  document.getElementById("drawerOverlay").classList.remove("open");
+  document.getElementById("settingsDrawer").classList.remove("open");
+}
+
+document.getElementById("gearBtn").addEventListener("click", openDrawer);
+document.getElementById("closeDrawerBtn").addEventListener("click", closeDrawer);
+document.getElementById("drawerOverlay").addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("settingsDrawer").classList.contains("open")) {
+    closeDrawer();
+  }
+});
+
+// Copy room code to clipboard
+document.getElementById("copyRoomBtn").addEventListener("click", () => {
+  const code = document.getElementById("roomCode").value;
+  if (!code) return;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById("copyRoomBtn");
+    btn.innerHTML = "&#10003;";
+    btn.style.color = "#2d9c3c";
+    setTimeout(() => { btn.innerHTML = "&#128203;"; btn.style.color = ""; }, 1500);
+  });
+});
+
+// Sync currency symbol when dropdown changes
+const CURRENCY_SYMBOLS = { gbp: "\u00A3", usd: "$", eur: "\u20AC" };
+document.getElementById("currency").addEventListener("change", (e) => {
+  const sym = CURRENCY_SYMBOLS[e.target.value] || "\u00A3";
+  document.getElementById("currencySymbol").textContent = sym;
+  document.getElementById("escrowSymbol").textContent = sym;
+});
+
 // ── Form Submit ──────────────────────────────
 
 document.getElementById("profileForm").addEventListener("submit", (e) => {
@@ -287,6 +1251,9 @@ document.getElementById("profileForm").addEventListener("submit", (e) => {
     return;
   }
   const userId = generateUserId(profile.displayName);
+  myUserId = userId;
+  myDisplayName = profile.displayName;
+  document.getElementById("colHeaderA").textContent = profile.displayName;
   startSession(userId, roomCode, profile);
 });
 
@@ -295,24 +1262,22 @@ document.getElementById("profileForm").addEventListener("submit", (e) => {
 function startSession(userId, roomCode, profile) {
   document.getElementById("setup").style.display = "none";
   document.getElementById("session").style.display = "flex";
-  document.getElementById("roomDisplay").textContent = `Room: ${roomCode}`;
 
   const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
   const baseUrl = `${wsProtocol}//${location.host}`;
 
   let audioWs = null;
 
-  // Panel WebSocket — opens first to create the room
   const panelWs = new WebSocket(
     `${baseUrl}/ws/panels?room=${encodeURIComponent(roomCode)}&user=${encodeURIComponent(userId)}`
   );
+  panelWsRef = panelWs;
 
   panelWs.addEventListener("open", () => {
     panelWs.send(JSON.stringify({ type: "set_profile", profile }));
     panelWs.send(JSON.stringify({ type: "join_room", roomId: roomCode }));
   });
 
-  // Open audio WS only after room join is confirmed via status message
   function connectAudio() {
     if (audioWs) return;
     audioWs = new WebSocket(
@@ -355,7 +1320,7 @@ async function startMicrophone(audioWs) {
     processor.connect(audioContext.destination);
   } catch (err) {
     console.error("Microphone error:", err);
-    document.getElementById("statusText").textContent = "Microphone access denied";
+    document.getElementById("callStatusText").textContent = "Microphone access denied";
     document.getElementById("statusDot").className = "status-dot error";
   }
 }
@@ -368,6 +1333,7 @@ function setupAudioPlayback(audioWs) {
 
   audioWs.addEventListener("message", (event) => {
     if (typeof event.data === "string") return;
+    if (!audioRelayEnabled) return;
 
     if (!playbackContext) {
       playbackContext = new AudioContext({ sampleRate: 16000 });
@@ -396,12 +1362,12 @@ function setupAudioPlayback(audioWs) {
 
 // ── Panel Message Handler ────────────────────
 
-function setupPanelHandler(panelWs, myUserId, onRoomJoined) {
+function setupPanelHandler(panelWs, userId, onRoomJoined) {
   panelWs.addEventListener("message", (event) => {
     try {
       const msg = JSON.parse(event.data);
       switch (msg.panel) {
-        case "transcript": handleTranscript(msg, myUserId); break;
+        case "transcript": handleTranscript(msg, userId); break;
         case "agent": handleAgent(msg); break;
         case "negotiation": handleNegotiation(msg); break;
         case "document": handleDocument(msg, panelWs); break;
@@ -414,219 +1380,6 @@ function setupPanelHandler(panelWs, myUserId, onRoomJoined) {
       }
     } catch { /* ignore malformed messages */ }
   });
-}
-
-// ── Transcript Panel ─────────────────────────
-
-function handleTranscript(msg, myUserId) {
-  const panel = document.getElementById("transcriptPanel");
-  const entry = msg.entry;
-
-  if (!entry.isFinal) {
-    let partial = document.getElementById(`partial-${entry.speaker}`);
-    if (!partial) {
-      partial = document.createElement("div");
-      partial.id = `partial-${entry.speaker}`;
-      partial.className = "transcript-partial";
-      panel.appendChild(partial);
-    }
-    partial.textContent = `${entry.speaker}: ${entry.text}...`;
-    autoScroll(panel);
-    return;
-  }
-
-  const partial = document.getElementById(`partial-${entry.speaker}`);
-  if (partial) partial.remove();
-
-  const div = document.createElement("div");
-  div.className = "transcript-entry";
-
-  const isLocal = entry.speaker === myUserId || entry.source === "local";
-  const speakerSpan = document.createElement("span");
-  speakerSpan.className = isLocal ? "speaker-local" : "speaker-peer";
-  speakerSpan.textContent = entry.speaker + ": ";
-
-  const textSpan = document.createElement("span");
-  textSpan.textContent = entry.text;
-
-  div.appendChild(speakerSpan);
-  div.appendChild(textSpan);
-  panel.appendChild(div);
-  autoScroll(panel);
-}
-
-// ── Agent Panel ──────────────────────────────
-
-function handleAgent(msg) {
-  const panel = document.getElementById("agentPanel");
-  const div = document.createElement("div");
-
-  if (msg.text.startsWith("[Tool:")) {
-    div.className = "agent-tool";
-    const nameMatch = msg.text.match(/\[Tool: (.+?)\]/);
-    const toolName = nameMatch ? nameMatch[1] : "unknown";
-    const result = msg.text.replace(/\[Tool: .+?\] ?/, "");
-
-    const nameEl = document.createElement("div");
-    nameEl.className = "tool-name";
-    nameEl.textContent = toolName;
-
-    const resultEl = document.createElement("div");
-    resultEl.className = "tool-args";
-    resultEl.textContent = result;
-
-    div.appendChild(nameEl);
-    div.appendChild(resultEl);
-  } else {
-    div.className = "agent-response";
-    div.textContent = msg.text;
-  }
-
-  panel.appendChild(div);
-  autoScroll(panel);
-}
-
-// ── Negotiation Panel ────────────────────────
-
-function handleNegotiation(msg) {
-  const panel = document.getElementById("negotiationPanel");
-  const neg = msg.negotiation;
-
-  const div = document.createElement("div");
-  div.className = `negotiation-entry negotiation-${neg.status}`;
-
-  const header = document.createElement("div");
-  header.className = "negotiation-header";
-  header.textContent = `${neg.status.toUpperCase()} — Round ${neg.rounds.length}/${neg.maxRounds}`;
-
-  const summary = document.createElement("div");
-  summary.textContent = neg.currentProposal.summary;
-
-  const total = document.createElement("div");
-  total.className = "negotiation-amount";
-  total.textContent = `Total: \u00A3${(neg.currentProposal.totalAmount / 100).toFixed(2)}`;
-
-  const items = document.createElement("ul");
-  for (const li of neg.currentProposal.lineItems) {
-    const item = document.createElement("li");
-    item.textContent = `${li.description}: \u00A3${(li.amount / 100).toFixed(2)} (${li.type})`;
-    items.appendChild(item);
-  }
-
-  div.appendChild(header);
-  div.appendChild(summary);
-  div.appendChild(total);
-  div.appendChild(items);
-  panel.appendChild(div);
-  autoScroll(panel);
-}
-
-// ── Document Overlay ─────────────────────────
-
-function handleDocument(msg, panelWs) {
-  const overlay = document.getElementById("documentOverlay");
-  const doc = msg.document;
-
-  document.getElementById("documentTitle").textContent = doc.title;
-  document.getElementById("documentContent").innerHTML = markdownToHtml(doc.content);
-
-  updateSignatureStatus(doc);
-
-  const signBtn = document.getElementById("signBtn");
-  signBtn.onclick = () => {
-    panelWs.send(JSON.stringify({ type: "sign_document", documentId: doc.id }));
-    signBtn.disabled = true;
-    signBtn.textContent = "Signed \u2713";
-  };
-
-  overlay.style.display = "flex";
-}
-
-function updateSignatureStatus(doc) {
-  const el = document.getElementById("signatureStatus");
-  const signed = doc.signatures.length;
-  const total = doc.parties.length;
-  el.textContent = `Signatures: ${signed}/${total}`;
-  if (doc.status === "fully_signed") {
-    el.textContent += " — Agreement Complete!";
-    document.getElementById("documentOverlay").classList.add("completed");
-  }
-}
-
-// ── Markdown to HTML ─────────────────────────
-
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function markdownToHtml(md) {
-  return escapeHtml(md)
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>")
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
-    .replace(/\n\n/g, "<br><br>")
-    .replace(/\n/g, "<br>");
-}
-
-// ── Execution Panel ──────────────────────────
-
-function handleExecution(msg) {
-  const panel = document.getElementById("executionPanel");
-  const div = document.createElement("div");
-  div.className = `execution-entry execution-${msg.status === "done" ? "confirmed" : msg.status === "failed" ? "failed" : "update"}`;
-
-  const step = document.createElement("div");
-  step.className = "execution-step";
-  step.textContent = msg.step;
-
-  const status = document.createElement("div");
-  status.className = "execution-status";
-  status.textContent = msg.status + (msg.details ? ` — ${msg.details}` : "");
-
-  div.appendChild(step);
-  div.appendChild(status);
-  panel.appendChild(div);
-  autoScroll(panel);
-}
-
-// ── Status Handler ───────────────────────────
-
-function handleStatus(msg) {
-  const dot = document.getElementById("statusDot");
-  const text = document.getElementById("statusText");
-
-  if (msg.users && msg.users.length >= 2) {
-    dot.className = "status-dot connected";
-    text.textContent = `Connected — ${msg.sessionStatus}`;
-  } else {
-    dot.className = "status-dot waiting";
-    text.textContent = "Waiting for partner...";
-  }
-}
-
-function handleError(msg) {
-  const dot = document.getElementById("statusDot");
-  dot.className = "status-dot error";
-  document.getElementById("statusText").textContent = `Error: ${msg.message}`;
-}
-
-// ── Auto-scroll ──────────────────────────────
-
-function autoScroll(container) {
-  const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-  if (isNearBottom) {
-    container.scrollTop = container.scrollHeight;
-  }
 }
 
 // ── Init ─────────────────────────────────────

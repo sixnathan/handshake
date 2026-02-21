@@ -62,6 +62,20 @@ function makeDeps(overrides: Partial<ToolDependencies> = {}): ToolDependencies {
       sendToUser: vi.fn(),
       broadcast: vi.fn(),
     },
+    peer: {
+      send: vi.fn(),
+      getOtherUserId: vi.fn().mockReturnValue("bob"),
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+      emit: vi.fn(),
+      removeAllListeners: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      listeners: vi.fn().mockReturnValue([]),
+      listenerCount: vi.fn().mockReturnValue(0),
+      eventNames: vi.fn().mockReturnValue([]),
+    } as any,
     userId: "alice",
     otherUserId: "bob",
     displayName: "Alice",
@@ -80,8 +94,8 @@ describe("Tools Module", () => {
     tools = buildTools(deps);
   });
 
-  it("should build 8 tools", () => {
-    expect(tools.length).toBe(8);
+  it("should build 9 tools", () => {
+    expect(tools.length).toBe(9);
   });
 
   it("should include all expected tool names", () => {
@@ -93,6 +107,7 @@ describe("Tools Module", () => {
     expect(names).toContain("capture_escrow");
     expect(names).toContain("release_escrow");
     expect(names).toContain("check_balance");
+    expect(names).toContain("check_transactions");
     expect(names).toContain("send_message_to_user");
   });
 
@@ -282,6 +297,114 @@ describe("Tools Module", () => {
     });
   });
 
+  describe("check_transactions", () => {
+    it("should return transactions when Monzo connected", async () => {
+      (deps.monzo!.getTransactions as any).mockResolvedValue([
+        {
+          id: "tx_1",
+          amount: -4500,
+          currency: "GBP",
+          description: "Coffee Shop",
+          created: "2026-02-21T10:30:00Z",
+          merchant: { name: "Costa Coffee" },
+          category: "eating_out",
+        },
+        {
+          id: "tx_2",
+          amount: 100000,
+          currency: "GBP",
+          description: "Salary",
+          created: "2026-02-20T09:00:00Z",
+          merchant: null,
+          category: "income",
+        },
+      ]);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({ days: 7 });
+      expect(deps.monzo!.getTransactions).toHaveBeenCalledWith(7);
+      expect(result).toContain("Costa Coffee");
+      expect(result).toContain("Salary");
+      expect(result).toContain("Net:");
+    });
+
+    it("should return unavailable when Monzo not connected", async () => {
+      deps = makeDeps({ monzo: null });
+      tools = buildTools(deps);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({});
+      expect(result).toContain("Monzo not connected");
+    });
+
+    it("should handle empty transaction list", async () => {
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({ days: 30 });
+      expect(result).toContain("No transactions found");
+    });
+
+    it("should clamp days to 1-90 range", async () => {
+      (deps.monzo!.getTransactions as any).mockResolvedValue([]);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+
+      await tool.handler({ days: 200 });
+      expect(deps.monzo!.getTransactions).toHaveBeenCalledWith(90);
+
+      await tool.handler({ days: -5 });
+      expect(deps.monzo!.getTransactions).toHaveBeenCalledWith(1);
+    });
+
+    it("should default days to 30 when not provided", async () => {
+      (deps.monzo!.getTransactions as any).mockResolvedValue([]);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      await tool.handler({});
+      expect(deps.monzo!.getTransactions).toHaveBeenCalledWith(30);
+    });
+
+    it("should handle Monzo API error gracefully", async () => {
+      (deps.monzo!.getTransactions as any).mockRejectedValue(
+        new Error("API rate limited"),
+      );
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({ days: 7 });
+      expect(result).toContain("Failed to fetch transactions");
+      expect(result).toContain("API rate limited");
+    });
+
+    it("should show max 20 transactions even with more results", async () => {
+      const manyTx = Array.from({ length: 30 }, (_, i) => ({
+        id: `tx_${i}`,
+        amount: -(i + 1) * 100,
+        currency: "GBP",
+        description: `Transaction ${i}`,
+        created: "2026-02-21T10:00:00Z",
+        merchant: { name: `Merchant ${i}` },
+        category: "general",
+      }));
+      (deps.monzo!.getTransactions as any).mockResolvedValue(manyTx);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({ days: 30 });
+      expect(result).toContain("30 transactions, showing first 20");
+      // Should not contain Merchant 20 (0-indexed, so 21st item)
+      expect(result).not.toContain("Merchant 20");
+    });
+
+    it("should use description as fallback when merchant is null", async () => {
+      (deps.monzo!.getTransactions as any).mockResolvedValue([
+        {
+          id: "tx_1",
+          amount: 50000,
+          currency: "GBP",
+          description: "Bank Transfer",
+          created: "2026-02-21T10:00:00Z",
+          merchant: null,
+          category: "transfers",
+        },
+      ]);
+      const tool = tools.find((t) => t.name === "check_transactions")!;
+      const result = await tool.handler({});
+      expect(result).toContain("Bank Transfer");
+    });
+  });
+
   describe("send_message_to_user", () => {
     it("should send message to panel", async () => {
       const tool = tools.find((t) => t.name === "send_message_to_user")!;
@@ -294,6 +417,149 @@ describe("Tools Module", () => {
         }),
       );
       expect(result).toContain("Message sent");
+    });
+
+    it("should handle send errors gracefully", async () => {
+      (deps.panelEmitter.sendToUser as any).mockImplementation(() => {
+        throw new Error("Socket closed");
+      });
+      const tool = tools.find((t) => t.name === "send_message_to_user")!;
+      const result = await tool.handler({ text: "Test" });
+      expect(result).toContain("Error sending message");
+    });
+  });
+
+  describe("analyze_and_propose edge cases", () => {
+    it("should send proposal to peer", async () => {
+      const tool = tools.find((t) => t.name === "analyze_and_propose")!;
+      await tool.handler({
+        summary: "Fix boiler",
+        lineItems: [
+          { description: "Labour", amount: 15000, type: "immediate" },
+        ],
+        currency: "gbp",
+      });
+      expect(deps.peer.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent_proposal",
+          negotiationId: "neg_123",
+        }),
+      );
+    });
+
+    it("should handle empty conditions array", async () => {
+      const tool = tools.find((t) => t.name === "analyze_and_propose")!;
+      const result = await tool.handler({
+        summary: "Simple job",
+        lineItems: [{ description: "Work", amount: 5000, type: "immediate" }],
+        currency: "gbp",
+      });
+      expect(result).toContain("Proposal created");
+    });
+  });
+
+  describe("evaluate_proposal edge cases", () => {
+    it("should handle invalid decision", async () => {
+      const tool = tools.find((t) => t.name === "evaluate_proposal")!;
+      const result = await tool.handler({
+        negotiationId: "neg_1",
+        decision: "invalid_decision",
+      });
+      expect(result).toContain("Error");
+      expect(result).toContain("invalid_decision");
+    });
+
+    it("should handle negotiation service errors", async () => {
+      (deps.negotiation.handleAgentMessage as any).mockImplementation(() => {
+        throw new Error("Negotiation expired");
+      });
+      const tool = tools.find((t) => t.name === "evaluate_proposal")!;
+      const result = await tool.handler({
+        negotiationId: "neg_1",
+        decision: "accept",
+      });
+      expect(result).toContain("Error evaluating proposal");
+    });
+  });
+
+  describe("escrow error paths", () => {
+    it("should handle escrow hold creation failure", async () => {
+      (deps.payment.createEscrowHold as any).mockRejectedValue(
+        new Error("Card declined"),
+      );
+      const tool = tools.find((t) => t.name === "create_escrow_hold")!;
+      const result = await tool.handler({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Error creating escrow hold");
+    });
+
+    it("should handle capture escrow failure", async () => {
+      (deps.payment.captureEscrow as any).mockResolvedValue({
+        success: false,
+        error: "Hold expired",
+      });
+      const tool = tools.find((t) => t.name === "capture_escrow")!;
+      const result = await tool.handler({ holdId: "hold_expired" });
+      expect(result).toContain("Escrow capture failed");
+    });
+
+    it("should handle release escrow failure", async () => {
+      (deps.payment.releaseEscrow as any).mockResolvedValue({
+        success: false,
+        error: "Already captured",
+      });
+      const tool = tools.find((t) => t.name === "release_escrow")!;
+      const result = await tool.handler({ holdId: "hold_captured" });
+      expect(result).toContain("Escrow release failed");
+    });
+
+    it("should handle capture escrow exception", async () => {
+      (deps.payment.captureEscrow as any).mockRejectedValue(
+        new Error("Network error"),
+      );
+      const tool = tools.find((t) => t.name === "capture_escrow")!;
+      const result = await tool.handler({ holdId: "hold_123" });
+      expect(result).toContain("Error capturing escrow");
+    });
+
+    it("should handle release escrow exception", async () => {
+      (deps.payment.releaseEscrow as any).mockRejectedValue(
+        new Error("Network error"),
+      );
+      const tool = tools.find((t) => t.name === "release_escrow")!;
+      const result = await tool.handler({ holdId: "hold_123" });
+      expect(result).toContain("Error releasing escrow");
+    });
+  });
+
+  describe("check_balance error path", () => {
+    it("should handle Monzo API error gracefully", async () => {
+      (deps.monzo!.getBalance as any).mockRejectedValue(
+        new Error("Token expired"),
+      );
+      const tool = tools.find((t) => t.name === "check_balance")!;
+      const result = await tool.handler({});
+      expect(result).toContain("Failed to check balance");
+      expect(result).toContain("Token expired");
+    });
+  });
+
+  describe("payment exception path", () => {
+    it("should handle payment exception gracefully", async () => {
+      (deps.payment.executePayment as any).mockRejectedValue(
+        new Error("Stripe down"),
+      );
+      const tool = tools.find((t) => t.name === "execute_payment")!;
+      const result = await tool.handler({
+        amount: 1000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Error executing payment");
+      expect(result).toContain("Stripe down");
     });
   });
 });

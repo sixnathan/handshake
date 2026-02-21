@@ -10,7 +10,19 @@ import type { ITriggerDetector } from "../interfaces.js";
 import type { ILLMProvider } from "../providers/provider.js";
 import type { LLMContentBlock } from "../providers/types.js";
 
-const SMART_DETECTION_PROMPT = `You are a financial agreement detector. Analyze the conversation transcript and determine if the speakers are making a financial agreement, deal, or commitment that involves money.
+function buildSmartDetectionPrompt(
+  userId: string,
+  displayName: string,
+): string {
+  return `You are monitoring a live conversation on behalf of ${displayName} (${userId}).
+You will see transcript lines labeled with speaker IDs.
+
+Your user is: ${userId}
+The other person is: whoever else appears in the transcript.
+
+Determine if there is a financial agreement, deal, or offer being discussed
+that your user should act on — either as the person offering/paying or
+the person receiving/being paid.
 
 Look for:
 - Explicit amounts ("£500", "two hundred pounds", "$50")
@@ -23,13 +35,18 @@ Respond with ONLY a JSON object (no markdown, no explanation):
 {
   "triggered": true/false,
   "confidence": 0.0-1.0,
+  "role": "proposer" | "responder" | "unclear",
+  "summary": "brief description of what's being agreed",
   "terms": [
     { "term": "the detected phrase", "confidence": 0.0-1.0, "context": "surrounding sentence" }
   ]
 }
 
+"role" indicates whether your user (${displayName}) is the one proposing/paying ("proposer") or the one receiving/being paid ("responder"). Use "unclear" if you can't determine this.
+
 If there's no financial agreement being discussed, respond with:
-{ "triggered": false, "confidence": 0.0, "terms": [] }`;
+{ "triggered": false, "confidence": 0.0, "role": "unclear", "summary": "", "terms": [] }`;
+}
 
 export class TriggerDetector extends EventEmitter implements ITriggerDetector {
   private keyword: string;
@@ -49,6 +66,8 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
       smartDetectionEnabled: boolean;
       llmProvider: ILLMProvider;
       llmModel: string;
+      userId: string;
+      displayName: string;
     },
   ) {
     super();
@@ -62,10 +81,18 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
     }
   }
 
+  private readonly MAX_TRANSCRIPTS = 100;
+
   feedTranscript(entry: TranscriptEntry): void {
     if (this.triggered) return;
 
     this.recentTranscripts.push(entry);
+
+    if (this.recentTranscripts.length > this.MAX_TRANSCRIPTS) {
+      const excess = this.recentTranscripts.length - this.MAX_TRANSCRIPTS;
+      this.recentTranscripts = this.recentTranscripts.slice(excess);
+      this.lastSmartCheckIndex = Math.max(0, this.lastSmartCheckIndex - excess);
+    }
 
     if (entry.isFinal && entry.text.toLowerCase().includes(this.keyword)) {
       this.keywordStates.push({
@@ -96,23 +123,18 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
   }
 
   private checkKeywordTrigger(latestSpeaker: UserId): void {
-    const now = Date.now();
-    this.keywordStates = this.keywordStates.filter(
-      (s) => now - s.detectedAt <= this.KEYWORD_WINDOW_MS,
-    );
+    // Per-user keyword detection: fire when THIS user says the keyword
+    if (latestSpeaker !== this.config.userId) return;
 
-    const uniqueUsers = new Set(this.keywordStates.map((s) => s.userId));
-
-    if (uniqueUsers.size >= 2) {
-      this.triggered = true;
-      this.emit("triggered", {
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: this.keyword,
-        timestamp: Date.now(),
-        speakerId: latestSpeaker,
-      } satisfies TriggerEvent);
-    }
+    this.triggered = true;
+    this.emit("triggered", {
+      type: "keyword",
+      confidence: 1.0,
+      matchedText: this.keyword,
+      timestamp: Date.now(),
+      speakerId: latestSpeaker,
+      role: "unclear" as const,
+    } satisfies TriggerEvent);
   }
 
   private async runSmartDetection(): Promise<void> {
@@ -130,16 +152,35 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
       const window = this.recentTranscripts.slice(-20);
       const text = window.map((t) => `${t.speaker}: ${t.text}`).join("\n");
 
+      this.emit("smart:check", {
+        transcriptLines: window.length,
+        inputPreview: text.slice(0, 200),
+        timestamp: Date.now(),
+      });
+
+      const smartPrompt = buildSmartDetectionPrompt(
+        this.config.userId,
+        this.config.displayName,
+      );
+
       const response = await this.config.llmProvider.createMessage({
         model: this.config.llmModel,
         maxTokens: 500,
-        system: SMART_DETECTION_PROMPT,
+        system: smartPrompt,
         messages: [{ role: "user", content: text }],
       });
 
-      const { triggered, confidence, terms } = this.parseSmartDetectionResponse(
-        response.content,
-      );
+      const { triggered, confidence, terms, role, summary } =
+        this.parseSmartDetectionResponse(response.content);
+
+      this.emit("smart:result", {
+        triggered,
+        confidence,
+        terms,
+        role,
+        summary,
+        timestamp: Date.now(),
+      });
 
       if (triggered && confidence >= this.SMART_CONFIDENCE_THRESHOLD) {
         this.triggered = true;
@@ -149,11 +190,20 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
           matchedText: terms.map((t) => t.term).join(", "),
           detectedTerms: terms,
           timestamp: Date.now(),
-          speakerId: newTranscripts[newTranscripts.length - 1].speaker,
+          speakerId: this.config.userId as UserId,
+          role,
+          summary,
         } satisfies TriggerEvent);
       }
     } catch (err) {
       console.warn("[TriggerDetector] Smart detection LLM error:", err);
+      this.emit("smart:result", {
+        triggered: false,
+        confidence: 0,
+        terms: [],
+        error: err instanceof Error ? err.message : String(err),
+        timestamp: Date.now(),
+      });
     } finally {
       this.smartDetectionRunning = false;
     }
@@ -163,14 +213,25 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
     triggered: boolean;
     confidence: number;
     terms: DetectedTerm[];
+    role: "proposer" | "responder" | "unclear";
+    summary: string;
   } {
+    const fallback = {
+      triggered: false,
+      confidence: 0,
+      terms: [] as DetectedTerm[],
+      role: "unclear" as const,
+      summary: "",
+    };
+
     const textBlock = content.find((b) => b.type === "text");
     if (!textBlock || textBlock.type !== "text") {
-      return { triggered: false, confidence: 0, terms: [] };
+      return fallback;
     }
 
     try {
       const parsed = JSON.parse(textBlock.text);
+      const role = parsed.role;
       return {
         triggered: Boolean(parsed.triggered),
         confidence: Number(parsed.confidence) || 0,
@@ -181,12 +242,14 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
               context: String(t.context ?? ""),
             }))
           : [],
+        role: role === "proposer" || role === "responder" ? role : "unclear",
+        summary: String(parsed.summary ?? ""),
       };
     } catch {
       console.warn(
         "[TriggerDetector] Failed to parse smart detection response",
       );
-      return { triggered: false, confidence: 0, terms: [] };
+      return fallback;
     }
   }
 }

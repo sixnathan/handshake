@@ -37,6 +37,7 @@ interface UserSlot {
   transcription: TranscriptionService;
   session: SessionService;
   agent: AgentService;
+  triggerDetector: TriggerDetector;
   peer: InProcessPeer | null;
   monzo: MonzoService | null;
 }
@@ -45,7 +46,6 @@ interface Room {
   id: RoomId;
   slots: Map<UserId, UserSlot>;
   audioRelay: AudioRelayService;
-  triggerDetector: TriggerDetector;
   negotiation: NegotiationService | null;
   document: DocumentService | null;
   payment: PaymentService;
@@ -95,7 +95,6 @@ export class RoomManager implements IRoomManager {
 
     if (room.slots.size === 0) {
       room.audioRelay.destroy();
-      room.triggerDetector.destroy();
       room.negotiation?.destroy();
       this.rooms.delete(roomId);
     }
@@ -115,6 +114,15 @@ export class RoomManager implements IRoomManager {
     }
 
     room.audioRelay.registerUser(userId, ws);
+
+    // Start transcription when audio socket connects (lazy — avoids wasting API time before audio flows)
+    slot.transcription.start().catch((err) => {
+      console.error("[room] Transcription start failed:", err);
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Transcription failed: ${(err as Error).message}`,
+      });
+    });
 
     let audioFlowing = false;
     ws.on("message", (data) => {
@@ -177,8 +185,9 @@ export class RoomManager implements IRoomManager {
 
       case "set_trigger_keyword": {
         for (const room of this.rooms.values()) {
-          if (room.slots.has(userId)) {
-            room.triggerDetector.setKeyword(message.keyword);
+          const slot = room.slots.get(userId);
+          if (slot) {
+            slot.triggerDetector.setKeyword(message.keyword);
             break;
           }
         }
@@ -206,7 +215,6 @@ export class RoomManager implements IRoomManager {
         this.cleanupSlot(room, userId);
       }
       room.audioRelay.destroy();
-      room.triggerDetector.destroy();
       room.negotiation?.destroy();
     }
     this.rooms.clear();
@@ -220,21 +228,10 @@ export class RoomManager implements IRoomManager {
 
     if (this.rooms.size >= MAX_ROOMS) return null;
 
-    const llmProvider = createLLMProvider(
-      this.config.llm.provider,
-      this.config.llm.apiKey,
-    );
-
     const room: Room = {
       id: roomId,
       slots: new Map(),
       audioRelay: new AudioRelayService(),
-      triggerDetector: new TriggerDetector({
-        keyword: this.config.trigger.keyword,
-        smartDetectionEnabled: this.config.trigger.smartDetectionEnabled,
-        llmProvider,
-        llmModel: this.config.llm.model,
-      }),
       negotiation: null,
       document: null,
       payment: new PaymentService({
@@ -243,10 +240,6 @@ export class RoomManager implements IRoomManager {
       }),
       paired: false,
     };
-
-    room.triggerDetector.on("triggered", (event: TriggerEvent) =>
-      this.handleTrigger(room, event),
-    );
 
     this.rooms.set(roomId, room);
     return room;
@@ -279,6 +272,82 @@ export class RoomManager implements IRoomManager {
       maxTokens: 4096,
     });
 
+    // Per-user TriggerDetector
+    const triggerLlmProvider = createLLMProvider(
+      this.config.llm.provider,
+      this.config.llm.apiKey,
+    );
+    const triggerDetector = new TriggerDetector({
+      keyword: this.config.trigger.keyword,
+      smartDetectionEnabled: this.config.trigger.smartDetectionEnabled,
+      llmProvider: triggerLlmProvider,
+      llmModel: this.config.llm.model,
+      userId,
+      displayName: profile.displayName,
+    });
+
+    // Wire per-user trigger events
+    triggerDetector.on("triggered", (event: TriggerEvent) =>
+      this.handleUserTrigger(room, userId, event),
+    );
+
+    triggerDetector.on(
+      "smart:check",
+      (info: {
+        transcriptLines: number;
+        inputPreview: string;
+        timestamp: number;
+      }) => {
+        this.panelEmitter.sendToUser(userId, {
+          panel: "agent",
+          userId: "system",
+          text: `[Smart Detection] Analyzing ${info.transcriptLines} transcript lines...\n"${info.inputPreview}"`,
+          timestamp: info.timestamp,
+        });
+      },
+    );
+
+    triggerDetector.on(
+      "smart:result",
+      (result: {
+        triggered: boolean;
+        confidence: number;
+        terms: Array<{ term: string; confidence: number; context: string }>;
+        role?: string;
+        summary?: string;
+        error?: string;
+        timestamp: number;
+      }) => {
+        let text: string;
+        if (result.error) {
+          text = `[Smart Detection] Error: ${result.error}`;
+        } else if (result.triggered) {
+          const termList = result.terms
+            .map(
+              (t) =>
+                `"${t.term}" (${(t.confidence * 100).toFixed(0)}%) — ${t.context}`,
+            )
+            .join("\n  ");
+          const roleInfo =
+            result.role && result.role !== "unclear"
+              ? ` | Role: ${result.role}`
+              : "";
+          text = `[Smart Detection] TRIGGERED (confidence: ${(result.confidence * 100).toFixed(0)}%${roleInfo})\n  ${termList}`;
+          if (result.summary) {
+            text += `\n  Summary: ${result.summary}`;
+          }
+        } else {
+          text = `[Smart Detection] No agreement detected (confidence: ${(result.confidence * 100).toFixed(0)}%)`;
+        }
+        this.panelEmitter.sendToUser(userId, {
+          panel: "agent",
+          userId: "system",
+          text,
+          timestamp: result.timestamp,
+        });
+      },
+    );
+
     // Wire audio → transcription
     audio.on("chunk", (chunk) => transcription.feedAudio(chunk));
 
@@ -298,14 +367,17 @@ export class RoomManager implements IRoomManager {
 
       session.addTranscript(entry);
       agent.pushTranscript(entry);
-      room.triggerDetector.feedTranscript(entry);
+      triggerDetector.feedTranscript(entry);
 
       this.panelEmitter.broadcast(room.id, { panel: "transcript", entry });
 
+      // Feed transcript to peer's services too
       for (const [otherId, otherSlot] of room.slots) {
         if (otherId !== userId) {
-          otherSlot.session.addTranscript({ ...entry, source: "peer" });
-          otherSlot.agent.pushTranscript({ ...entry, source: "peer" });
+          const peerEntry = { ...entry, source: "peer" as const };
+          otherSlot.session.addTranscript(peerEntry);
+          otherSlot.agent.pushTranscript(peerEntry);
+          otherSlot.triggerDetector.feedTranscript(peerEntry);
         }
       }
     });
@@ -324,21 +396,22 @@ export class RoomManager implements IRoomManager {
       });
     });
 
-    transcription.start().catch((err) => {
-      console.error("[room] Transcription start failed:", err);
-      this.panelEmitter.sendToUser(userId, {
-        panel: "error",
-        message: `Transcription failed: ${(err as Error).message}`,
-      });
-    });
-
     let monzo: MonzoService | null = null;
     if (profile.monzoAccessToken) {
       monzo = new MonzoService();
       monzo.setAccessToken(profile.monzoAccessToken);
     }
 
-    return { userId, audio, transcription, session, agent, peer: null, monzo };
+    return {
+      userId,
+      audio,
+      transcription,
+      session,
+      agent,
+      triggerDetector,
+      peer: null,
+      monzo,
+    };
   }
 
   private pairUsers(room: Room): void {
@@ -393,7 +466,8 @@ export class RoomManager implements IRoomManager {
       });
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
-      room.triggerDetector.reset();
+      slotA.triggerDetector.reset();
+      slotB.triggerDetector.reset();
     });
     room.negotiation.on("negotiation:expired", (neg: Negotiation) => {
       this.panelEmitter.broadcast(room.id, {
@@ -402,7 +476,8 @@ export class RoomManager implements IRoomManager {
       });
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
-      room.triggerDetector.reset();
+      slotA.triggerDetector.reset();
+      slotB.triggerDetector.reset();
     });
 
     // Wire peer message routing
@@ -428,6 +503,7 @@ export class RoomManager implements IRoomManager {
         monzo: slot.monzo,
         negotiation: room.negotiation!,
         panelEmitter: this.panelEmitter,
+        peer: slot.peer!,
         userId: uid,
         otherUserId: otherUid,
         displayName: userProfile.displayName,
@@ -477,6 +553,21 @@ export class RoomManager implements IRoomManager {
       users: [...room.slots.keys()],
       sessionStatus: "active",
     });
+  }
+
+  private handleUserTrigger(
+    room: Room,
+    userId: UserId,
+    event: TriggerEvent,
+  ): void {
+    // Double-trigger guard: if negotiation already active, ignore
+    if (room.negotiation?.getActiveNegotiation()) {
+      console.log(
+        `[room] Trigger from ${userId} ignored — negotiation already active`,
+      );
+      return;
+    }
+    this.handleTrigger(room, event);
   }
 
   private handleTrigger(room: Room, event: TriggerEvent): void {
@@ -529,7 +620,7 @@ export class RoomManager implements IRoomManager {
       });
     }
 
-    room.document?.on(
+    room.document?.once(
       "document:signed",
       ({ documentId, userId }: { documentId: string; userId: string }) => {
         this.panelEmitter.broadcast(room.id, {
@@ -541,7 +632,7 @@ export class RoomManager implements IRoomManager {
       },
     );
 
-    room.document?.on("document:completed", async () => {
+    room.document?.once("document:completed", async () => {
       await this.executePayments(room, negotiation);
     });
   }
@@ -616,6 +707,7 @@ export class RoomManager implements IRoomManager {
     if (!slot) return;
 
     slot.agent.stop();
+    slot.triggerDetector.destroy();
     slot.transcription.stop().catch(() => {});
     slot.audio.destroy();
     slot.session.reset();

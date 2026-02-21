@@ -4,6 +4,7 @@ import type {
   IMonzoService,
   INegotiationService,
   IPanelEmitter,
+  IInProcessPeer,
 } from "./interfaces.js";
 import type { AgentProposal, UserId, NegotiationId } from "./types.js";
 
@@ -12,6 +13,7 @@ export interface ToolDependencies {
   monzo: IMonzoService | null;
   negotiation: INegotiationService;
   panelEmitter: IPanelEmitter;
+  peer: IInProcessPeer;
   userId: UserId;
   otherUserId: UserId;
   displayName: string;
@@ -94,7 +96,14 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             proposal,
           );
 
-          return `Proposal created: ${negotiation.id}\nSummary: ${proposal.summary}\nTotal: £${(totalAmount / 100).toFixed(2)}\nLine items: ${lineItems.length}`;
+          deps.peer.send({
+            type: "agent_proposal",
+            negotiationId: negotiation.id,
+            proposal,
+            fromAgent: deps.userId,
+          });
+
+          return `Proposal created and sent to other agent: ${negotiation.id}\nSummary: ${proposal.summary}\nTotal: £${(totalAmount / 100).toFixed(2)}\nLine items: ${lineItems.length}`;
         } catch (err) {
           return `Error creating proposal: ${err instanceof Error ? err.message : String(err)}`;
         }
@@ -153,22 +162,28 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
           const reason = input.reason ? String(input.reason) : "";
 
           switch (decision) {
-            case "accept":
-              deps.negotiation.handleAgentMessage({
-                type: "agent_accept",
+            case "accept": {
+              const acceptMsg = {
+                type: "agent_accept" as const,
                 negotiationId,
                 fromAgent: deps.userId,
-              });
+              };
+              deps.negotiation.handleAgentMessage(acceptMsg);
+              deps.peer.send(acceptMsg);
               return "Proposal accepted. Document generation will follow.";
+            }
 
-            case "reject":
-              deps.negotiation.handleAgentMessage({
-                type: "agent_reject",
+            case "reject": {
+              const rejectMsg = {
+                type: "agent_reject" as const,
                 negotiationId,
                 reason,
                 fromAgent: deps.userId,
-              });
+              };
+              deps.negotiation.handleAgentMessage(rejectMsg);
+              deps.peer.send(rejectMsg);
               return `Proposal rejected. Reason: ${reason}`;
+            }
 
             case "counter": {
               const cp = input.counterProposal as
@@ -197,14 +212,16 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
                 expiresAt: Date.now() + 30_000,
               };
 
-              deps.negotiation.handleAgentMessage({
-                type: "agent_counter",
+              const counterMsg = {
+                type: "agent_counter" as const,
                 negotiationId,
                 proposal: counterProposal,
                 reason,
                 fromAgent: deps.userId,
-              });
-              return `Counter-proposal sent. New total: £${(counterProposal.totalAmount / 100).toFixed(2)}`;
+              };
+              deps.negotiation.handleAgentMessage(counterMsg);
+              deps.peer.send(counterMsg);
+              return `Counter-proposal sent to other agent. New total: £${(counterProposal.totalAmount / 100).toFixed(2)}`;
             }
 
             default:
@@ -353,7 +370,45 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
     },
 
-    // Tool 8: send_message_to_user
+    // Tool 8: check_transactions
+    {
+      name: "check_transactions",
+      description:
+        "Check your user's recent Monzo transactions. Useful to verify affordability, check spending patterns, or confirm recent payments.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: {
+            type: "number",
+            description:
+              "Number of days of history to fetch (default 30, max 90)",
+          },
+        },
+      },
+      handler: async (input) => {
+        if (!deps.monzo)
+          return "Monzo not connected — transactions unavailable.";
+        try {
+          const days = Math.min(Math.max(Number(input.days) || 30, 1), 90);
+          const transactions = await deps.monzo.getTransactions(days);
+          if (transactions.length === 0) {
+            return `No transactions found in the last ${days} days.`;
+          }
+          const summary = transactions.slice(0, 20).map((t) => {
+            const amount = (t.amount / 100).toFixed(2);
+            const sign = t.amount < 0 ? "-" : "+";
+            const merchant = t.merchant?.name ?? t.description;
+            return `${sign}£${Math.abs(Number(amount)).toFixed(2)} ${merchant} (${t.category}) ${t.created.slice(0, 10)}`;
+          });
+          const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+          return `Last ${days} days (${transactions.length} transactions, showing first 20):\n${summary.join("\n")}\nNet: £${(total / 100).toFixed(2)}`;
+        } catch (err) {
+          return `Failed to fetch transactions: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+    },
+
+    // Tool 9: send_message_to_user
     {
       name: "send_message_to_user",
       description:

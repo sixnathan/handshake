@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "tsx src/web.ts",
     "start:web": "tsx src/web.ts",
     "dev": "tsx watch src/web.ts",
     "typecheck": "tsc --noEmit"

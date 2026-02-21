@@ -20,7 +20,10 @@ function makeEntry(
 const mockLLMProvider = {
   createMessage: vi.fn().mockResolvedValue({
     content: [
-      { type: "text", text: '{"triggered":false,"confidence":0,"terms":[]}' },
+      {
+        type: "text",
+        text: '{"triggered":false,"confidence":0,"role":"unclear","summary":"","terms":[]}',
+      },
     ],
     stopReason: "end_turn",
     usage: { inputTokens: 0, outputTokens: 0 },
@@ -37,6 +40,8 @@ describe("TriggerDetector Module", () => {
       smartDetectionEnabled: false,
       llmProvider: mockLLMProvider as any,
       llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
     });
   });
 
@@ -46,34 +51,20 @@ describe("TriggerDetector Module", () => {
     vi.clearAllMocks();
   });
 
-  it("should not trigger on single keyword from one user", () => {
+  it("should trigger when the configured user says the keyword", () => {
     const events: TriggerEvent[] = [];
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "let's say chripbbbly"));
-    expect(events.length).toBe(0);
-  });
-
-  it("should trigger when two users say keyword within 30s window", () => {
-    const events: TriggerEvent[] = [];
-    detector.on("triggered", (e) => events.push(e));
-
-    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "yes chripbbbly!"));
-
     expect(events.length).toBe(1);
     expect(events[0].type).toBe("keyword");
     expect(events[0].confidence).toBe(1.0);
+    expect(events[0].speakerId).toBe("alice");
   });
 
-  it("should not trigger when keywords are outside 30s window", () => {
+  it("should not trigger when a different user says the keyword", () => {
     const events: TriggerEvent[] = [];
     detector.on("triggered", (e) => events.push(e));
-
-    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-
-    // Advance past the 30s window
-    vi.advanceTimersByTime(31_000);
 
     detector.feedTranscript(makeEntry("bob", "chripbbbly"));
     expect(events.length).toBe(0);
@@ -84,7 +75,6 @@ describe("TriggerDetector Module", () => {
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "chripbbbly", false));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly", false));
     expect(events.length).toBe(0);
   });
 
@@ -93,7 +83,6 @@ describe("TriggerDetector Module", () => {
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "CHRIPBBBLY"));
-    detector.feedTranscript(makeEntry("bob", "Chripbbbly!"));
     expect(events.length).toBe(1);
   });
 
@@ -104,7 +93,6 @@ describe("TriggerDetector Module", () => {
     detector.setKeyword("deal");
 
     detector.feedTranscript(makeEntry("alice", "deal"));
-    detector.feedTranscript(makeEntry("bob", "deal"));
     expect(events.length).toBe(1);
   });
 
@@ -113,14 +101,12 @@ describe("TriggerDetector Module", () => {
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
     expect(events.length).toBe(1);
 
     detector.reset();
 
     // Should be able to trigger again
     detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
     expect(events.length).toBe(2);
   });
 
@@ -129,7 +115,6 @@ describe("TriggerDetector Module", () => {
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
     detector.feedTranscript(makeEntry("alice", "chripbbbly again"));
 
     expect(events.length).toBe(1); // still just 1
@@ -140,21 +125,20 @@ describe("TriggerDetector Module", () => {
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
 
-    // These should be ignored
-    detector.feedTranscript(makeEntry("carol", "chripbbbly"));
+    // These should be ignored (already triggered)
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
     expect(events.length).toBe(1);
   });
 
-  it("should identify the latest speaker in trigger event", () => {
+  it("should include role field in trigger event", () => {
     const events: TriggerEvent[] = [];
     detector.on("triggered", (e) => events.push(e));
 
     detector.feedTranscript(makeEntry("alice", "chripbbbly"));
-    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
 
-    expect(events[0].speakerId).toBe("bob");
+    expect(events[0].role).toBe("unclear");
   });
 
   it("should clean up on destroy", () => {
@@ -169,11 +153,12 @@ describe("TriggerDetector Module", () => {
       smartDetectionEnabled: false,
       llmProvider: mockLLMProvider as any,
       llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
     });
     const events2: TriggerEvent[] = [];
     det2.on("triggered", (e) => events2.push(e));
     det2.feedTranscript(makeEntry("alice", "chripbbbly"));
-    det2.feedTranscript(makeEntry("bob", "chripbbbly"));
     expect(events2.length).toBe(1); // new detector works
     expect(events.length).toBe(0); // old detector's listener was removed
     det2.destroy();
@@ -192,6 +177,8 @@ describe("TriggerDetector Smart Detection", () => {
             text: JSON.stringify({
               triggered: true,
               confidence: 0.9,
+              role: "responder",
+              summary: "Payment of £500 for work",
               terms: [
                 {
                   term: "£500",
@@ -213,6 +200,8 @@ describe("TriggerDetector Smart Detection", () => {
       smartDetectionEnabled: false, // disable auto-interval, test manually
       llmProvider: smartProvider as any,
       llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
     });
 
     const events: TriggerEvent[] = [];
@@ -230,6 +219,9 @@ describe("TriggerDetector Smart Detection", () => {
     expect(events.length).toBe(1);
     expect(events[0].type).toBe("smart");
     expect(events[0].confidence).toBe(0.9);
+    expect(events[0].role).toBe("responder");
+    expect(events[0].summary).toBe("Payment of £500 for work");
+    expect(events[0].speakerId).toBe("alice");
 
     detector.destroy();
   });
@@ -245,6 +237,8 @@ describe("TriggerDetector Smart Detection", () => {
             text: JSON.stringify({
               triggered: true,
               confidence: 0.3,
+              role: "unclear",
+              summary: "maybe",
               terms: [{ term: "maybe", confidence: 0.3, context: "maybe pay" }],
             }),
           },
@@ -259,6 +253,8 @@ describe("TriggerDetector Smart Detection", () => {
       smartDetectionEnabled: false,
       llmProvider: lowConfidenceProvider as any,
       llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
     });
 
     const events: TriggerEvent[] = [];
@@ -285,7 +281,7 @@ describe("TriggerDetector Smart Detection", () => {
           content: [
             {
               type: "text",
-              text: '{"triggered":false,"confidence":0,"terms":[]}',
+              text: '{"triggered":false,"confidence":0,"role":"unclear","summary":"","terms":[]}',
             },
           ],
           stopReason: "end_turn",
@@ -299,6 +295,8 @@ describe("TriggerDetector Smart Detection", () => {
       smartDetectionEnabled: true,
       llmProvider: slowProvider as any,
       llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
     });
 
     detector.feedTranscript(makeEntry("alice", "hello"));

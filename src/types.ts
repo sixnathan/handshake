@@ -4,6 +4,7 @@ export type UserId = string;
 export type NegotiationId = string;
 export type RoomId = string;
 export type DocumentId = string;
+export type MilestoneId = string;
 
 // ── Agent Profile ──────────────────────────
 
@@ -90,6 +91,8 @@ export interface TriggerEvent {
   detectedTerms?: DetectedTerm[];
   timestamp: number;
   speakerId: UserId;
+  role?: "proposer" | "responder" | "unclear";
+  summary?: string;
 }
 
 export interface KeywordState {
@@ -149,6 +152,23 @@ export interface Negotiation {
   updatedAt: number;
 }
 
+// ── Milestone ─────────────────────────────
+
+export type MilestoneStatus = "pending" | "completed";
+
+export interface Milestone {
+  id: MilestoneId;
+  documentId: DocumentId;
+  lineItemIndex: number;
+  description: string;
+  amount: number;
+  condition: string;
+  status: MilestoneStatus;
+  escrowHoldId?: string;
+  completedAt?: number;
+  completedBy?: UserId;
+}
+
 // ── Legal Document ─────────────────────────
 
 export interface DocumentParty {
@@ -173,6 +193,7 @@ export interface LegalDocument {
   terms: AgentProposal;
   signatures: DocumentSignature[];
   status: DocumentStatus;
+  milestones?: Milestone[];
   createdAt: number;
 }
 
