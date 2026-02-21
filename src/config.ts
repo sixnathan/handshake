@@ -63,7 +63,7 @@ export function loadConfig(): AppConfig {
         "openrouter",
       ),
       apiKey: required("LLM_API_KEY"),
-      model: optional("LLM_MODEL", "anthropic/claude-sonnet-4-20250514"),
+      model: optional("LLM_MODEL", "anthropic/claude-sonnet-4"),
     },
     trigger: {
       keyword: optional("TRIGGER_KEYWORD", "chripbbbly"),

@@ -15,8 +15,10 @@ export class PanelEmitter implements IPanelEmitter {
     this.sockets.set(userId, ws);
 
     ws.on("close", () => {
-      this.sockets.delete(userId);
-      this.roomMembership.delete(userId);
+      if (this.sockets.get(userId) === ws) {
+        this.sockets.delete(userId);
+        this.roomMembership.delete(userId);
+      }
     });
   }
 
@@ -37,13 +39,18 @@ export class PanelEmitter implements IPanelEmitter {
 
   broadcast(roomId: RoomId, message: PanelMessage): void {
     const payload = JSON.stringify(message);
+    let count = 0;
     for (const [userId, memberRoomId] of this.roomMembership) {
       if (memberRoomId === roomId) {
         const ws = this.sockets.get(userId);
         if (ws && ws.readyState === ws.OPEN) {
           ws.send(payload);
+          count++;
         }
       }
     }
+    console.log(
+      `[panel] Broadcasting ${(message as Record<string, unknown>).panel} to room ${roomId} (${count} recipients)`,
+    );
   }
 }

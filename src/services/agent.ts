@@ -58,6 +58,8 @@ export class AgentService extends EventEmitter implements IAgentService {
   private transcriptBatch: TranscriptEntry[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private processing = false;
+  private recursionDepth = 0;
+  private readonly MAX_RECURSION_DEPTH = 20;
 
   constructor(
     private readonly config: {
@@ -170,8 +172,24 @@ Inform your user that the negotiation was not successful.`;
   private async callLLMLoop(): Promise<void> {
     if (this.processing || !this.running) return;
     this.processing = true;
+    this.recursionDepth = 0;
+    await this.runLLMStep();
+  }
 
+  private async runLLMStep(): Promise<void> {
     try {
+      if (this.recursionDepth >= this.MAX_RECURSION_DEPTH) {
+        console.error("[agent] Max recursion depth reached, stopping loop");
+        this.emit("agent:message", {
+          text: "Error: Agent processing limit reached.",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+      this.recursionDepth++;
+
+      const messageCountBefore = this.messages.length;
+
       const llmTools = this.tools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -232,8 +250,13 @@ Inform your user that the negotiation was not successful.`;
         }
 
         this.messages.push({ role: "user", content: toolResults });
-        this.processing = false;
-        await this.callLLMLoop();
+        await this.runLLMStep();
+        return;
+      }
+
+      // Check if new messages arrived during processing
+      if (this.messages.length > messageCountBefore + 1) {
+        await this.runLLMStep();
         return;
       }
     } catch (err) {

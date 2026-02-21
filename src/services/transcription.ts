@@ -14,6 +14,8 @@ export class TranscriptionService
   private ws: WebSocket | null = null;
   private running = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
 
   constructor(
     private readonly config: {
@@ -29,26 +31,35 @@ export class TranscriptionService
     if (this.running) return;
     this.running = true;
 
-    const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&language_code=${this.config.language}&commit_strategy=vad`;
+    console.log("[transcription] Connecting to ElevenLabs...");
+    const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&language_code=${this.config.language}&commit_strategy=vad&audio_format=pcm_16000`;
 
     this.ws = new WebSocket(url, {
       headers: { "xi-api-key": this.config.apiKey },
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const onOpen = (): void => {
-        this.ws?.removeListener("error", onError);
-        resolve();
-      };
-      const onError = (err: Error): void => {
-        this.ws?.removeListener("open", onOpen);
-        reject(err);
-      };
-      this.ws!.once("open", onOpen);
-      this.ws!.once("error", onError);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onOpen = (): void => {
+          this.ws?.removeListener("error", onError);
+          resolve();
+        };
+        const onError = (err: Error): void => {
+          this.ws?.removeListener("open", onOpen);
+          reject(err);
+        };
+        this.ws!.once("open", onOpen);
+        this.ws!.once("error", onError);
+      });
+    } catch (err) {
+      this.running = false;
+      this.ws = null;
+      throw err;
+    }
 
+    console.log("[transcription] Connected to ElevenLabs");
     this.wireHandlers();
+    this.reconnectAttempts = 0;
   }
 
   async stop(): Promise<void> {
@@ -67,7 +78,12 @@ export class TranscriptionService
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.running)
       return;
     const base64 = chunk.buffer.toString("base64");
-    this.ws.send(JSON.stringify({ type: "input_audio_chunk", data: base64 }));
+    this.ws.send(
+      JSON.stringify({
+        message_type: "input_audio_chunk",
+        audio_base_64: base64,
+      }),
+    );
   }
 
   private wireHandlers(): void {
@@ -78,10 +94,14 @@ export class TranscriptionService
 
       switch (msg.message_type as string) {
         case "session_started":
+          console.log("[transcription] Session started");
           break;
 
         case "partial_transcript":
           if (msg.text) {
+            console.log(
+              `[transcription] Partial: ${(msg.text as string).slice(0, 50)}`,
+            );
             this.emit("partial", {
               text: msg.text,
             } satisfies PartialTranscript);
@@ -90,6 +110,9 @@ export class TranscriptionService
 
         case "committed_transcript":
           if (msg.text) {
+            console.log(
+              `[transcription] Final: ${(msg.text as string).slice(0, 50)}`,
+            );
             this.emit("final", { text: msg.text } satisfies FinalTranscript);
           }
           break;
@@ -134,16 +157,25 @@ export class TranscriptionService
 
   private scheduleReconnect(): void {
     if (!this.running) return;
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      console.error(
+        "[transcription] Max reconnect attempts reached, giving up",
+      );
+      return;
+    }
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
     }
+    const delay = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       void this.reconnect();
-    }, 2000);
+    }, delay);
   }
 
   private async reconnect(): Promise<void> {
     this.ws = null;
+    this.running = false;
     try {
       await this.start();
     } catch (err) {
@@ -151,6 +183,7 @@ export class TranscriptionService
         "[transcription] Reconnect failed:",
         (err as Error).message,
       );
+      this.scheduleReconnect();
     }
   }
 }

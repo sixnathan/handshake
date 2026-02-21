@@ -41,6 +41,7 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
   private readonly KEYWORD_WINDOW_MS = 30_000;
   private readonly SMART_CHECK_INTERVAL_MS = 10_000;
   private readonly SMART_CONFIDENCE_THRESHOLD = 0.7;
+  private smartDetectionRunning = false;
 
   constructor(
     private readonly config: {
@@ -115,19 +116,20 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
   }
 
   private async runSmartDetection(): Promise<void> {
-    if (this.triggered) return;
-
-    const newTranscripts = this.recentTranscripts.slice(
-      this.lastSmartCheckIndex,
-    );
-    if (newTranscripts.length === 0) return;
-
-    this.lastSmartCheckIndex = this.recentTranscripts.length;
-
-    const window = this.recentTranscripts.slice(-20);
-    const text = window.map((t) => `${t.speaker}: ${t.text}`).join("\n");
+    if (this.triggered || this.smartDetectionRunning) return;
+    this.smartDetectionRunning = true;
 
     try {
+      const newTranscripts = this.recentTranscripts.slice(
+        this.lastSmartCheckIndex,
+      );
+      if (newTranscripts.length === 0) return;
+
+      this.lastSmartCheckIndex = this.recentTranscripts.length;
+
+      const window = this.recentTranscripts.slice(-20);
+      const text = window.map((t) => `${t.speaker}: ${t.text}`).join("\n");
+
       const response = await this.config.llmProvider.createMessage({
         model: this.config.llmModel,
         maxTokens: 500,
@@ -152,6 +154,8 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
       }
     } catch (err) {
       console.warn("[TriggerDetector] Smart detection LLM error:", err);
+    } finally {
+      this.smartDetectionRunning = false;
     }
   }
 

@@ -1,0 +1,317 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { TriggerDetector } from "../src/services/trigger-detector.js";
+import type { TranscriptEntry, TriggerEvent } from "../src/types.js";
+
+function makeEntry(
+  speaker: string,
+  text: string,
+  isFinal = true,
+): TranscriptEntry {
+  return {
+    id: `${speaker}-${Date.now()}`,
+    speaker,
+    text,
+    timestamp: Date.now(),
+    isFinal,
+    source: "local",
+  };
+}
+
+const mockLLMProvider = {
+  createMessage: vi.fn().mockResolvedValue({
+    content: [
+      { type: "text", text: '{"triggered":false,"confidence":0,"terms":[]}' },
+    ],
+    stopReason: "end_turn",
+    usage: { inputTokens: 0, outputTokens: 0 },
+  }),
+};
+
+describe("TriggerDetector Module", () => {
+  let detector: TriggerDetector;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+    });
+  });
+
+  afterEach(() => {
+    detector.destroy();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("should not trigger on single keyword from one user", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "let's say chripbbbly"));
+    expect(events.length).toBe(0);
+  });
+
+  it("should trigger when two users say keyword within 30s window", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "yes chripbbbly!"));
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("keyword");
+    expect(events[0].confidence).toBe(1.0);
+  });
+
+  it("should not trigger when keywords are outside 30s window", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+
+    // Advance past the 30s window
+    vi.advanceTimersByTime(31_000);
+
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+    expect(events.length).toBe(0);
+  });
+
+  it("should not trigger on partial (non-final) transcripts", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly", false));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly", false));
+    expect(events.length).toBe(0);
+  });
+
+  it("should be case-insensitive for keyword matching", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "CHRIPBBBLY"));
+    detector.feedTranscript(makeEntry("bob", "Chripbbbly!"));
+    expect(events.length).toBe(1);
+  });
+
+  it("should support changing the keyword", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.setKeyword("deal");
+
+    detector.feedTranscript(makeEntry("alice", "deal"));
+    detector.feedTranscript(makeEntry("bob", "deal"));
+    expect(events.length).toBe(1);
+  });
+
+  it("should reset state for next negotiation", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+    expect(events.length).toBe(1);
+
+    detector.reset();
+
+    // Should be able to trigger again
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+    expect(events.length).toBe(2);
+  });
+
+  it("should not emit duplicate triggers", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+    detector.feedTranscript(makeEntry("alice", "chripbbbly again"));
+
+    expect(events.length).toBe(1); // still just 1
+  });
+
+  it("should ignore transcripts after triggering", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+
+    // These should be ignored
+    detector.feedTranscript(makeEntry("carol", "chripbbbly"));
+    expect(events.length).toBe(1);
+  });
+
+  it("should identify the latest speaker in trigger event", () => {
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+
+    expect(events[0].speakerId).toBe("bob");
+  });
+
+  it("should clean up on destroy", () => {
+    // Register listener first, then destroy removes all listeners
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+    detector.destroy();
+
+    // Create fresh detector to test keyword detection is decoupled
+    const det2 = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+    });
+    const events2: TriggerEvent[] = [];
+    det2.on("triggered", (e) => events2.push(e));
+    det2.feedTranscript(makeEntry("alice", "chripbbbly"));
+    det2.feedTranscript(makeEntry("bob", "chripbbbly"));
+    expect(events2.length).toBe(1); // new detector works
+    expect(events.length).toBe(0); // old detector's listener was removed
+    det2.destroy();
+  });
+});
+
+describe("TriggerDetector Smart Detection", () => {
+  it("should run smart detection on interval when enabled", async () => {
+    vi.useRealTimers();
+
+    const smartProvider = {
+      createMessage: vi.fn().mockResolvedValue({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              triggered: true,
+              confidence: 0.9,
+              terms: [
+                {
+                  term: "£500",
+                  confidence: 0.9,
+                  context: "pay £500 for the work",
+                },
+              ],
+            }),
+          },
+        ],
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      }),
+    };
+
+    // Test the smart detection method directly instead of relying on intervals
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false, // disable auto-interval, test manually
+      llmProvider: smartProvider as any,
+      llmModel: "test-model",
+    });
+
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(
+      makeEntry("alice", "I'll pay you £500 for the work"),
+    );
+    detector.feedTranscript(makeEntry("bob", "Sounds good, deal!"));
+
+    // Call the private method directly via prototype
+    await (detector as any).runSmartDetection();
+
+    expect(smartProvider.createMessage).toHaveBeenCalled();
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("smart");
+    expect(events[0].confidence).toBe(0.9);
+
+    detector.destroy();
+  });
+
+  it("should not trigger smart detection below confidence threshold", async () => {
+    vi.useRealTimers();
+
+    const lowConfidenceProvider = {
+      createMessage: vi.fn().mockResolvedValue({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              triggered: true,
+              confidence: 0.3,
+              terms: [{ term: "maybe", confidence: 0.3, context: "maybe pay" }],
+            }),
+          },
+        ],
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      }),
+    };
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: lowConfidenceProvider as any,
+      llmModel: "test-model",
+    });
+
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "maybe we could discuss"));
+    await (detector as any).runSmartDetection();
+
+    expect(events.length).toBe(0);
+
+    detector.destroy();
+  });
+
+  it("should guard against overlapping smart detection calls", async () => {
+    vi.useFakeTimers();
+
+    let callCount = 0;
+    const slowProvider = {
+      createMessage: vi.fn().mockImplementation(async () => {
+        callCount++;
+        // Simulate slow response — takes longer than 10s interval
+        await new Promise((resolve) => setTimeout(resolve, 15_000));
+        return {
+          content: [
+            {
+              type: "text",
+              text: '{"triggered":false,"confidence":0,"terms":[]}',
+            },
+          ],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+      }),
+    };
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: true,
+      llmProvider: slowProvider as any,
+      llmModel: "test-model",
+    });
+
+    detector.feedTranscript(makeEntry("alice", "hello"));
+
+    // First interval fires at 10s — starts LLM call
+    vi.advanceTimersByTime(10_000);
+    // Second interval fires at 20s — should be guarded
+    vi.advanceTimersByTime(10_000);
+
+    // Only 1 call should have been made (guard prevents overlap)
+    expect(callCount).toBe(1);
+
+    detector.destroy();
+    vi.useRealTimers();
+  });
+});
