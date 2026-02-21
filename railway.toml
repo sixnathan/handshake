@@ -1,0 +1,6 @@
+[build]
+buildCommand = "npm ci"
+
+[deploy]
+startCommand = "npx tsx src/web.ts"
+healthcheckPath = "/health"
