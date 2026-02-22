@@ -19,8 +19,8 @@ export class NegotiationService
   private roundTimer: ReturnType<typeof setTimeout> | null = null;
   private totalTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly MAX_ROUNDS = 5;
-  private readonly ROUND_TIMEOUT_MS = 30_000;
-  private readonly TOTAL_TIMEOUT_MS = 120_000;
+  private readonly ROUND_TIMEOUT_MS = 90_000;
+  private readonly TOTAL_TIMEOUT_MS = 300_000;
 
   constructor(private readonly roomId: string) {
     super();

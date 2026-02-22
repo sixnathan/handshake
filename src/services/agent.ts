@@ -364,13 +364,25 @@ Inform your user that the negotiation was not successful.`;
   }
 
   private async callLLMLoop(): Promise<void> {
-    if (this.processing || !this.running) return;
+    if (this.processing) {
+      console.log("[agent] callLLMLoop skipped — already processing");
+      return;
+    }
+    if (!this.running) return;
     this.processing = true;
     this.recursionDepth = 0;
     try {
       await this.runLLMStep();
     } finally {
       this.processing = false;
+      // Check if messages arrived while we were processing
+      const lastMsg = this.messages[this.messages.length - 1];
+      if (lastMsg && lastMsg.role === "user") {
+        console.log(
+          "[agent] New user message found after processing — re-entering loop",
+        );
+        await this.callLLMLoop();
+      }
     }
   }
 

@@ -647,33 +647,39 @@ export class RoomManager implements IRoomManager {
     userId: UserId,
     event: TriggerEvent,
   ): void {
+    // Use the actual SPEAKER for dual-keyword coordination, not the detector owner.
+    // Transcripts are fed to ALL detectors, so one person saying "handshake"
+    // fires multiple detectors with different userIds.
+    const speakerId = event.speakerId as UserId;
+
     console.log(
-      `[room] handleUserTrigger: user=${userId}, type=${event.type}, confidence=${event.confidence}, room=${room.id}`,
+      `[room] handleUserTrigger: detector=${userId}, speaker=${speakerId}, type=${event.type}, confidence=${event.confidence}, room=${room.id}`,
     );
     // Guard: if negotiation already active or trigger in progress, ignore
     if (room.negotiation?.getActiveNegotiation() || room.triggerInProgress) {
       console.log(
-        `[room] Trigger from ${userId} ignored — negotiation already active or trigger in progress`,
+        `[room] Trigger from ${speakerId} ignored — negotiation already active or trigger in progress`,
       );
       return;
     }
 
-    // Dual-keyword coordination: both users must say the keyword within 10s
+    // Dual-keyword coordination: both users must SAY the keyword within window
     if (room.pendingTrigger === null) {
-      // First user said it — store and wait for the other
-      room.pendingTrigger = { userId, timestamp: Date.now() };
+      // First speaker — store and wait for the other
+      room.pendingTrigger = { userId: speakerId, timestamp: Date.now() };
       room.pendingTriggerTimeout = setTimeout(() => {
         console.log(
-          `[room] Dual-keyword timeout — ${userId} said trigger but no match within ${this.DUAL_KEYWORD_TIMEOUT_MS}ms`,
+          `[room] Dual-keyword timeout — ${speakerId} said trigger but no match within ${this.DUAL_KEYWORD_TIMEOUT_MS}ms`,
         );
         room.pendingTrigger = null;
         room.pendingTriggerTimeout = null;
-        // Reset the trigger detector so the user can say it again
-        const slot = room.slots.get(userId);
-        if (slot) slot.triggerDetector.reset();
+        // Reset ALL trigger detectors so users can say it again
+        for (const slot of room.slots.values()) {
+          slot.triggerDetector.reset();
+        }
       }, this.DUAL_KEYWORD_TIMEOUT_MS);
 
-      this.panelEmitter.sendToUser(userId, {
+      this.panelEmitter.sendToUser(speakerId, {
         panel: "agent",
         userId: "system",
         text: `Waiting for other party to say "${this.config.trigger.keyword}"...`,
@@ -682,19 +688,19 @@ export class RoomManager implements IRoomManager {
       return;
     }
 
-    // Same user said it twice — ignore
-    if (room.pendingTrigger.userId === userId) {
+    // Same SPEAKER said it again (possibly from a different detector) — ignore
+    if (room.pendingTrigger.userId === speakerId) {
       console.log(
-        `[room] Duplicate trigger from ${userId} ignored — already pending`,
+        `[room] Duplicate trigger from speaker ${speakerId} ignored — already pending`,
       );
       return;
     }
 
-    // Different user within window — dual-keyword confirmed!
+    // Different speaker within window — dual-keyword confirmed!
     const elapsed = Date.now() - room.pendingTrigger.timestamp;
     if (elapsed > this.DUAL_KEYWORD_TIMEOUT_MS) {
       // Expired — treat this as a new first trigger
-      room.pendingTrigger = { userId, timestamp: Date.now() };
+      room.pendingTrigger = { userId: speakerId, timestamp: Date.now() };
       return;
     }
 
