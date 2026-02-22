@@ -301,7 +301,12 @@ function CardMilestonesBlock({
       {/* Progress bar */}
       <div className="h-1 overflow-hidden rounded-full bg-separator">
         <div
-          className="h-full rounded-full bg-accent-green transition-all duration-500"
+          className={cn(
+            "h-full rounded-full transition-all duration-700 ease-out",
+            completedCount === totalCount
+              ? "bg-accent-green"
+              : "bg-gradient-to-r from-accent-green to-accent-blue",
+          )}
           style={{
             width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
           }}

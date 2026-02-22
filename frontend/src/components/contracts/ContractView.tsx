@@ -52,10 +52,14 @@ export function ContractView({
       <PartiesSection doc={doc} />
 
       {/* ── Payment Breakdown ───────────────────── */}
-      <PaymentBreakdown doc={doc} currency={currency} />
+      <div className="border-t border-separator pt-5">
+        <PaymentBreakdown doc={doc} currency={currency} />
+      </div>
 
       {/* ── Line Items ──────────────────────────── */}
-      <LineItemsSection doc={doc} currency={currency} />
+      <div className="border-t border-separator pt-5">
+        <LineItemsSection doc={doc} currency={currency} />
+      </div>
 
       {/* ── Factor Summary ──────────────────────── */}
       {doc.terms.factorSummary && (
@@ -71,37 +75,43 @@ export function ContractView({
 
       {/* ── Milestones ──────────────────────────── */}
       {milestonesArray.length > 0 && (
-        <MilestonesSection
-          milestones={milestonesArray}
-          currency={currency}
-          readOnly={readOnly}
-          isFullySigned={isFullySigned}
-          onComplete={onCompleteMilestone}
-          onVerify={onVerifyMilestone}
-        />
+        <div className="border-t border-separator pt-5">
+          <MilestonesSection
+            milestones={milestonesArray}
+            currency={currency}
+            readOnly={readOnly}
+            isFullySigned={isFullySigned}
+            onComplete={onCompleteMilestone}
+            onVerify={onVerifyMilestone}
+          />
+        </div>
       )}
 
       {/* ── Conditions ──────────────────────────── */}
       {doc.terms.conditions.length > 0 && (
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-            Conditions
-          </h3>
-          <div className="space-y-1.5">
-            {doc.terms.conditions.map((c, i) => (
-              <CriterionCheckbox key={i} label={c} checked={isFullySigned} />
-            ))}
-          </div>
-        </section>
+        <div className="border-t border-separator pt-5">
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+              Conditions
+            </h3>
+            <div className="space-y-1.5">
+              {doc.terms.conditions.map((c, i) => (
+                <CriterionCheckbox key={i} label={c} checked={isFullySigned} />
+              ))}
+            </div>
+          </section>
+        </div>
       )}
 
       {/* ── Signatures ──────────────────────────── */}
-      <SignaturesSection
-        doc={doc}
-        readOnly={readOnly}
-        alreadySigned={alreadySigned}
-        onSign={onSign}
-      />
+      <div className="border-t border-separator pt-5">
+        <SignaturesSection
+          doc={doc}
+          readOnly={readOnly}
+          alreadySigned={alreadySigned}
+          onSign={onSign}
+        />
+      </div>
 
       {/* ── Raw Document Toggle ─────────────────── */}
       <section className="border-t border-separator pt-4">
@@ -149,29 +159,40 @@ function PaymentBreakdown({
   if (immediate === 0 && escrow === 0) return null;
 
   return (
-    <div className="flex gap-3">
-      {immediate > 0 && (
-        <div className="flex-1 rounded-lg border border-accent-green/20 bg-accent-green/5 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-accent-green">
-            Due on signing
-          </p>
-          <p className="mt-0.5 text-lg font-bold text-accent-green">
-            {currency}
-            {(immediate / 100).toFixed(2)}
-          </p>
-        </div>
-      )}
-      {escrow > 0 && (
-        <div className="flex-1 rounded-lg border border-accent-blue/20 bg-accent-blue/5 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-accent-blue">
-            Held in escrow
-          </p>
-          <p className="mt-0.5 text-lg font-bold text-accent-blue">
-            {currency}
-            {(escrow / 100).toFixed(2)}
-          </p>
-        </div>
-      )}
+    <div className="space-y-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+        Payment Summary
+      </h3>
+      <div className="flex gap-3">
+        {immediate > 0 && (
+          <div className="flex-1 rounded-lg border border-accent-green/20 bg-accent-green/5 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-accent-green">
+              Due on signing
+            </p>
+            <p className="mt-0.5 text-lg font-bold text-accent-green">
+              {currency}
+              {(immediate / 100).toFixed(2)}
+            </p>
+            <p className="mt-1 text-[10px] text-text-tertiary">
+              Charged immediately when both parties sign
+            </p>
+          </div>
+        )}
+        {escrow > 0 && (
+          <div className="flex-1 rounded-lg border border-accent-blue/20 bg-accent-blue/5 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-accent-blue">
+              Held in escrow
+            </p>
+            <p className="mt-0.5 text-lg font-bold text-accent-blue">
+              {currency}
+              {(escrow / 100).toFixed(2)}
+            </p>
+            <p className="mt-1 text-[10px] text-text-tertiary">
+              Released on milestone completion
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -401,7 +422,12 @@ function MilestonesSection({
       {/* Progress bar */}
       <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-separator">
         <div
-          className="h-full rounded-full bg-accent-green transition-all duration-500"
+          className={cn(
+            "h-full rounded-full transition-all duration-700 ease-out",
+            completed === total
+              ? "bg-accent-green"
+              : "bg-gradient-to-r from-accent-green to-accent-blue",
+          )}
           style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
         />
       </div>
@@ -596,11 +622,34 @@ function SignaturesSection({
 }) {
   const isFullySigned = doc.status === "fully_signed";
 
+  const sigCount = doc.signatures.length;
+  const partyCount = doc.parties.length;
+
   return (
     <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-        Signatures
-      </h3>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          Signatures
+        </h3>
+        <span
+          className={cn(
+            "text-xs font-medium",
+            isFullySigned ? "text-accent-green" : "text-text-tertiary",
+          )}
+        >
+          {sigCount}/{partyCount}
+        </span>
+      </div>
+      {!isFullySigned && (
+        <div className="mb-2 h-1 overflow-hidden rounded-full bg-separator">
+          <div
+            className="h-full rounded-full bg-accent-green transition-all duration-500"
+            style={{
+              width: `${partyCount > 0 ? (sigCount / partyCount) * 100 : 0}%`,
+            }}
+          />
+        </div>
+      )}
       <div className="space-y-2">
         {doc.parties.map((party, i) => {
           const sig = doc.signatures.find((s) => s.userId === party.userId);

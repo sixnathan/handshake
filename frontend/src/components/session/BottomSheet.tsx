@@ -69,10 +69,18 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
         <button
           type="button"
           aria-label="Dismiss contract sheet"
-          className="flex w-full justify-center py-3"
+          className="flex w-full flex-col items-center gap-1 py-3"
           onClick={hideBottomSheet}
         >
           <div className="h-1 w-10 rounded-full bg-gray-3" />
+          <span
+            className={cn(
+              "text-[9px] font-medium uppercase tracking-widest",
+              isFullySigned ? "text-accent-green" : "text-text-tertiary",
+            )}
+          >
+            {isFullySigned ? "Agreement Active" : "Contract Ready"}
+          </span>
         </button>
 
         <div className="px-5 pb-6">
@@ -148,7 +156,7 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
           {!isFullySigned && (
             <div className="mb-4 h-1 overflow-hidden rounded-full bg-separator">
               <div
-                className="h-full rounded-full bg-accent-green transition-all duration-500"
+                className="h-full rounded-full bg-gradient-to-r from-accent-green to-accent-blue transition-all duration-700 ease-out"
                 style={{
                   width: `${totalParties > 0 ? (sigCount / totalParties) * 100 : 0}%`,
                 }}

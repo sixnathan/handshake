@@ -13,41 +13,27 @@ import type {
 } from "../types.js";
 import type { IDocumentService } from "../interfaces.js";
 
-const DOCUMENT_GENERATION_PROMPT = `You are a legal document generator. Create a clear, professional agreement document in Markdown format based on the negotiated terms.
+const DOCUMENT_GENERATION_PROMPT = `You are a legal document generator. Create a CONCISE, professional agreement in Markdown format.
 
-The document MUST include these sections:
-1. **TITLE** — Clear description of the agreement
-2. **DATE** — Current date
-3. **PARTIES** — Full names and roles of each party
-4. **RECITALS** — Background context (what was discussed)
-5. **PRICING STRUCTURE** — For each line item:
-   - Description and payment type (immediate, escrow, or conditional)
-   - For fixed-price items: the exact amount
-   - For range-priced items: the range (e.g., £500.00–£1,000.00) and the factors that determine the final price within that range
-   - For each factor: name, what it measures, and whether it increases/decreases/determines the price
-6. **FACTOR SUMMARY** — A dedicated plain-English section explaining what determines the cost. Write this as a paragraph that a non-expert can understand. Example: "The final repair cost depends on three factors: the complexity of the pipe work (more complex = higher cost), the parts required (standard vs specialist), and time on-site (billed per hour above the minimum)."
-7. **PAYMENT SCHEDULE** — How payments work:
-   - Immediate items: charged on signing
-   - Escrow items: the MAXIMUM amount is held on signing; actual amount captured upon completion based on the factors
-   - Conditional items: triggered when conditions are met
-8. **CONDITIONS & MILESTONES** — For escrow and conditional line items, define clear milestones:
-   - Specific deliverable or completion criteria
-   - Verification method
-   - Linked payment amount (or range)
-   - Expected timeline
-9. **DISPUTE RESOLUTION** — How disputes will be handled
-10. **SIGNATURES** — Signature lines for each party (placeholder format)
+IMPORTANT: Keep it SHORT — under 400 words. The structured data (line items, milestones, signatures) is displayed separately in the app UI. This document is supplementary legal text only.
+
+Include these sections BRIEFLY:
+1. **TITLE** — One line
+2. **DATE & PARTIES** — Names, roles, one line each
+3. **AGREEMENT** — 2-3 sentences summarizing what was agreed
+4. **PRICING** — One paragraph covering all line items, amounts, and payment types. For ranges, state the range and what determines the final price.
+5. **MILESTONES** — If applicable, a bullet list of completion criteria and verification methods (1-2 lines each)
+6. **TERMS** — Any conditions, dispute resolution, and cancellation in 2-3 bullet points
+7. **SIGNATURES** — Simple placeholder lines
 
 FORMATTING RULES:
-- Use Markdown formatting
-- Amounts should be formatted with currency symbol (e.g., £500.00)
-- For range items, use the format £MIN–£MAX
-- Be precise and unambiguous
-- Use simple language, avoid unnecessary legal jargon
-- The document should be readable by non-lawyers
-- The FACTOR SUMMARY section should be prominent and easy to understand
+- Use Markdown (headers, bold, bullet lists)
+- Amounts with currency symbol (e.g., £500.00), ranges as £MIN–£MAX
+- Simple language, no legal jargon — readable by anyone
+- NO lengthy recitals, NO verbose boilerplate
+- Be precise but brief
 
-Output ONLY the document content in Markdown. No preamble or explanation.`;
+Output ONLY the document content in Markdown. No preamble.`;
 
 export class DocumentService extends EventEmitter implements IDocumentService {
   private documents = new Map<DocumentId, LegalDocument>();
