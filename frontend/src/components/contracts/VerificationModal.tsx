@@ -13,7 +13,8 @@ import {
   useVerificationStore,
   type VerificationStep,
 } from "@/stores/verification-store";
-import { cn } from "@/lib/utils";
+import { cn, currencySymbol } from "@/lib/utils";
+import { useDocumentStore } from "@/stores/document-store";
 
 interface VerificationModalProps {
   panelWs: React.RefObject<WebSocket | null> | null;
@@ -27,6 +28,8 @@ export function VerificationModal({ panelWs }: VerificationModalProps) {
   const result = useVerificationStore((s) => s.result);
   const error = useVerificationStore((s) => s.error);
   const closeModal = useVerificationStore((s) => s.closeModal);
+  const currentDoc = useDocumentStore((s) => s.currentDocument);
+  const currency = currencySymbol(currentDoc?.terms.currency ?? "gbp");
 
   const [phone, setPhone] = useState("");
   const [contactName, setContactName] = useState("");
@@ -133,7 +136,7 @@ export function VerificationModal({ panelWs }: VerificationModalProps) {
             </div>
           )}
 
-          {result && <ResultDisplay result={result} />}
+          {result && <ResultDisplay result={result} currency={currency} />}
         </ScrollArea>
       </DialogContent>
     </Dialog>
@@ -158,10 +161,12 @@ function StepRow({ step }: { step: VerificationStep }) {
 
 function ResultDisplay({
   result,
+  currency,
 }: {
   result: NonNullable<
     ReturnType<typeof useVerificationStore.getState>["result"]
   >;
+  currency: string;
 }) {
   const outcomeConfig = {
     passed: {
@@ -192,7 +197,7 @@ function ResultDisplay({
         <p className={cn("text-lg font-bold", cfg.color)}>{cfg.label}</p>
         {result.verifiedAmount != null && (
           <p className="mt-1 text-sm text-text-secondary">
-            Verified amount: {"\u00A3"}
+            Verified amount: {currency}
             {(result.verifiedAmount / 100).toFixed(2)}
           </p>
         )}

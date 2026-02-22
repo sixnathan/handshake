@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
 import { cn, currencySymbol } from "@/lib/utils";
+import { PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
 import { CheckCircle2, Circle, Shield } from "lucide-react";
 
 interface BottomSheetProps {
@@ -86,6 +87,10 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
         {/* Line items compact list */}
         <div className="mb-3 space-y-1">
           {doc.terms.lineItems.map((li, i) => {
+            const typeConfig =
+              PAYMENT_TYPE_CONFIG[
+                li.type as keyof typeof PAYMENT_TYPE_CONFIG
+              ] ?? PAYMENT_TYPE_CONFIG.immediate;
             const hasRange =
               li.minAmount !== undefined && li.maxAmount !== undefined;
             return (
@@ -94,7 +99,7 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
                 className="flex items-center justify-between text-xs"
               >
                 <span className="text-text-secondary">{li.description}</span>
-                <span className="font-medium text-text-primary">
+                <span className="flex items-center gap-1.5 font-medium text-text-primary">
                   {hasRange ? (
                     <>
                       {currency}
@@ -109,15 +114,12 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
                   )}
                   <span
                     className={cn(
-                      "ml-1",
-                      li.type === "immediate"
-                        ? "text-accent-green"
-                        : li.type === "escrow"
-                          ? "text-accent-blue"
-                          : "text-accent-orange",
+                      "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                      typeConfig.bg,
+                      typeConfig.color,
                     )}
                   >
-                    {li.type}
+                    {typeConfig.label}
                   </span>
                 </span>
               </div>

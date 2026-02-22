@@ -9,7 +9,7 @@ import { useVerificationStore } from "@/stores/verification-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
 import type { LegalDocument } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
-import { MILESTONE_STATUS } from "@/lib/milestone-config";
+import { MILESTONE_STATUS, PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
 import {
   ArrowLeft,
   FileText,
@@ -192,6 +192,10 @@ function ContractCard({
       {contract.terms.lineItems.length > 0 && (
         <div className="mt-3 space-y-1">
           {contract.terms.lineItems.map((li, i) => {
+            const typeConfig =
+              PAYMENT_TYPE_CONFIG[
+                li.type as keyof typeof PAYMENT_TYPE_CONFIG
+              ] ?? PAYMENT_TYPE_CONFIG.immediate;
             const hasRange =
               li.minAmount !== undefined && li.maxAmount !== undefined;
             return (
@@ -200,7 +204,7 @@ function ContractCard({
                 className="flex items-center justify-between text-xs"
               >
                 <span className="text-text-secondary">{li.description}</span>
-                <span className="font-medium text-text-primary">
+                <span className="flex items-center gap-1.5 font-medium text-text-primary">
                   {hasRange ? (
                     <>
                       {currency}
@@ -215,15 +219,12 @@ function ContractCard({
                   )}
                   <span
                     className={cn(
-                      "ml-1.5",
-                      li.type === "immediate"
-                        ? "text-accent-green"
-                        : li.type === "escrow"
-                          ? "text-accent-blue"
-                          : "text-accent-orange",
+                      "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                      typeConfig.bg,
+                      typeConfig.color,
                     )}
                   >
-                    {li.type}
+                    {typeConfig.label}
                   </span>
                 </span>
               </div>
@@ -310,13 +311,17 @@ function ContractCard({
                         </div>
                       )}
 
-                    {/* Fallback: plain condition */}
+                    {/* Fallback: plain condition as checkbox */}
                     {(!ms.completionCriteria ||
                       ms.completionCriteria.length === 0) &&
                       ms.condition && (
-                        <p className="mt-1 pl-6 text-xs text-text-tertiary">
-                          {ms.condition}
-                        </p>
+                        <div className="mt-2 pl-6">
+                          <CriterionCheckbox
+                            label={ms.condition}
+                            checked={ms.status === "completed"}
+                            size="sm"
+                          />
+                        </div>
                       )}
 
                     {/* Verification method */}
@@ -362,7 +367,7 @@ function ContractCard({
         })()}
 
       {/* Actions row */}
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex items-center gap-3 border-t border-separator pt-4">
         <Button
           variant="outline"
           size="sm"
@@ -377,6 +382,7 @@ function ContractCard({
             variant="outline"
             size="sm"
             className="border-separator text-text-secondary"
+            aria-expanded={historyExpanded}
             onClick={onToggleHistory}
           >
             {historyExpanded ? (
@@ -391,16 +397,18 @@ function ContractCard({
 
       {/* Conversation history (collapsible) */}
       {historyExpanded && hasHistory && (
-        <div className="mt-3 max-h-60 space-y-1 overflow-y-auto rounded-lg border border-separator bg-surface-primary p-3">
+        <div className="mt-3 max-h-60 space-y-2 overflow-y-auto rounded-lg border border-separator bg-surface-primary p-3">
           {contract.conversationHistory!.map((entry, i) => (
             <div key={i} className="text-xs">
-              <span className="font-medium text-accent-blue">
-                {entry.speaker}
-              </span>
-              <span className="ml-1.5 text-text-tertiary">
-                {formatTime(entry.timestamp)}
-              </span>
-              <p className="text-text-secondary">{entry.text}</p>
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-accent-blue">
+                  {entry.speaker}
+                </span>
+                <span className="text-text-tertiary">
+                  {formatTime(entry.timestamp)}
+                </span>
+              </div>
+              <p className="mt-0.5 text-text-secondary">{entry.text}</p>
             </div>
           ))}
         </div>

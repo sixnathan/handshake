@@ -292,9 +292,19 @@ function LineItemsSection({
                       <span
                         key={fi}
                         className="inline-flex items-center rounded bg-surface-primary px-1.5 py-0.5 text-[10px] text-text-tertiary"
+                        title={f.description}
                       >
                         {f.name}
-                        <span className="ml-1 text-text-tertiary/60">
+                        <span
+                          className={cn(
+                            "ml-1",
+                            f.impact === "increases"
+                              ? "text-accent-red"
+                              : f.impact === "decreases"
+                                ? "text-accent-green"
+                                : "text-text-tertiary/60",
+                          )}
+                        >
                           {f.impact === "increases"
                             ? "\u2191"
                             : f.impact === "decreases"
@@ -532,20 +542,10 @@ function MilestoneCard({
 
       {/* Verification result */}
       {ms.verificationResult && (
-        <div className="mt-3 rounded-lg border border-separator bg-surface-primary p-3">
-          <p className="text-xs font-medium text-text-secondary">
-            Verification Result
-          </p>
-          <p className="mt-1 text-xs text-text-tertiary">
-            {ms.verificationResult.reasoning}
-          </p>
-          {ms.verificationResult.verifiedAmount !== undefined && (
-            <p className="mt-1 text-xs font-medium text-accent-green">
-              Verified amount: {currency}
-              {(ms.verificationResult.verifiedAmount / 100).toFixed(2)}
-            </p>
-          )}
-        </div>
+        <VerificationResultBadge
+          result={ms.verificationResult}
+          currency={currency}
+        />
       )}
     </div>
   );
@@ -628,5 +628,67 @@ function SignaturesSection({
         </div>
       )}
     </section>
+  );
+}
+
+// ── Verification result inline badge ─────────────────
+
+const OUTCOME_CONFIG = {
+  passed: {
+    label: "Passed",
+    color: "text-accent-green",
+    bg: "bg-accent-green/10",
+    border: "border-accent-green/30",
+  },
+  failed: {
+    label: "Failed",
+    color: "text-accent-red",
+    bg: "bg-accent-red/10",
+    border: "border-accent-red/30",
+  },
+  disputed: {
+    label: "Disputed",
+    color: "text-accent-orange",
+    bg: "bg-accent-orange/10",
+    border: "border-accent-orange/30",
+  },
+} as const;
+
+function VerificationResultBadge({
+  result,
+  currency,
+}: {
+  result: NonNullable<Milestone["verificationResult"]>;
+  currency: string;
+}) {
+  const cfg = OUTCOME_CONFIG[result.outcome];
+
+  return (
+    <div className={cn("mt-3 rounded-lg border p-3", cfg.bg, cfg.border)}>
+      <div className="flex items-center justify-between">
+        <span className={cn("text-xs font-bold uppercase", cfg.color)}>
+          {cfg.label}
+        </span>
+        {result.verifiedAmount !== undefined && (
+          <span className="text-xs font-medium text-text-primary">
+            {currency}
+            {(result.verifiedAmount / 100).toFixed(2)}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-text-secondary">{result.reasoning}</p>
+      {result.evidence.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {result.evidence.map((item, i) => (
+            <li
+              key={i}
+              className="text-[11px] text-text-tertiary before:mr-1.5 before:content-['\u2022']"
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
