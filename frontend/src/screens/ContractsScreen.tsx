@@ -7,7 +7,7 @@ import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import { useSessionStore } from "@/stores/session-store";
 import { useVerificationStore } from "@/stores/verification-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
-import type { LegalDocument } from "@/stores/document-store";
+import type { LegalDocument, Milestone } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
 import { MILESTONE_STATUS, PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
 import {
@@ -239,172 +239,14 @@ function ContractCard({
       )}
 
       {/* Milestones */}
-      {contract.milestones &&
-        contract.milestones.length > 0 &&
-        (() => {
-          const completedCount = contract.milestones!.filter(
-            (m) => m.status === "completed",
-          ).length;
-          const totalCount = contract.milestones!.length;
-          return (
-            <div className="mt-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
-                  Milestones
-                </p>
-                <span className="text-[11px] text-text-tertiary">
-                  {completedCount}/{totalCount} complete
-                </span>
-              </div>
-              {/* Progress bar */}
-              <div className="h-1 overflow-hidden rounded-full bg-separator">
-                <div
-                  className="h-full rounded-full bg-accent-green transition-all duration-500"
-                  style={{
-                    width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-              {contract.milestones.map((ms) => {
-                const status =
-                  MILESTONE_STATUS[ms.status] ?? MILESTONE_STATUS.pending;
-                const StatusIcon = status.icon;
-
-                return (
-                  <div
-                    key={ms.id}
-                    className={cn(
-                      "rounded-lg border p-3 transition-colors",
-                      ms.status === "completed"
-                        ? "border-accent-green/20 bg-accent-green/5"
-                        : ms.status === "failed"
-                          ? "border-accent-red/20 bg-accent-red/5"
-                          : ms.status === "disputed"
-                            ? "border-accent-orange/20 bg-accent-orange/5"
-                            : "border-separator bg-surface-tertiary",
-                    )}
-                  >
-                    {/* Milestone header */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2">
-                        <StatusIcon
-                          className={cn("mt-0.5 size-4 shrink-0", status.color)}
-                        />
-                        <div>
-                          <p className="text-sm font-medium text-text-primary">
-                            {ms.description}
-                          </p>
-                          {ms.expectedTimeline && (
-                            <span className="inline-flex items-center gap-1 text-[11px] text-text-tertiary">
-                              <Clock className="size-3" />
-                              {ms.expectedTimeline}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span
-                        className={cn("text-sm font-semibold", status.color)}
-                      >
-                        {currency}
-                        {(ms.amount / 100).toFixed(2)}
-                      </span>
-                    </div>
-
-                    {/* Completion criteria checkboxes */}
-                    {ms.completionCriteria &&
-                      ms.completionCriteria.length > 0 && (
-                        <div className="mt-2 space-y-1 pl-6">
-                          {ms.completionCriteria.map((c, i) => (
-                            <CriterionCheckbox
-                              key={i}
-                              label={c}
-                              checked={ms.status === "completed"}
-                              size="sm"
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                    {/* Fallback: plain condition as checkbox */}
-                    {(!ms.completionCriteria ||
-                      ms.completionCriteria.length === 0) &&
-                      ms.condition && (
-                        <div className="mt-2 pl-6">
-                          <CriterionCheckbox
-                            label={ms.condition}
-                            checked={ms.status === "completed"}
-                            size="sm"
-                          />
-                        </div>
-                      )}
-
-                    {/* Verification method */}
-                    {ms.verificationMethod && (
-                      <div className="mt-2 flex items-center gap-1.5 pl-6">
-                        <Shield className="size-3 text-text-tertiary" />
-                        <span className="text-[10px] text-text-tertiary">
-                          {ms.verificationMethod}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Verification result (compact) */}
-                    {ms.verificationResult && (
-                      <div
-                        className={cn(
-                          "mt-2 ml-6 rounded border px-2 py-1.5 text-[11px]",
-                          ms.verificationResult.outcome === "passed"
-                            ? "border-accent-green/30 bg-accent-green/5 text-accent-green"
-                            : ms.verificationResult.outcome === "failed"
-                              ? "border-accent-red/30 bg-accent-red/5 text-accent-red"
-                              : "border-accent-orange/30 bg-accent-orange/5 text-accent-orange",
-                        )}
-                      >
-                        <span className="font-bold uppercase">
-                          {ms.verificationResult.outcome}
-                        </span>
-                        {ms.verificationResult.verifiedAmount !== undefined && (
-                          <span className="ml-2 text-text-secondary">
-                            {currency}
-                            {(
-                              ms.verificationResult.verifiedAmount / 100
-                            ).toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Action buttons */}
-                    <div className="mt-2 flex items-center justify-between pl-6">
-                      {ms.status === "pending" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
-                          onClick={() => onVerify(contract.id, ms.id)}
-                        >
-                          <Shield className="mr-1 size-3" />
-                          Verify
-                        </Button>
-                      )}
-                      {ms.status !== "pending" && (
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            status.bg,
-                            status.color,
-                          )}
-                        >
-                          {status.label}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+      {contract.milestones && contract.milestones.length > 0 && (
+        <CardMilestonesBlock
+          milestones={contract.milestones}
+          currency={currency}
+          contractId={contract.id}
+          onVerify={onVerify}
+        />
+      )}
 
       {/* Actions row */}
       <div className="mt-4 flex items-center gap-3 border-t border-separator pt-4">
@@ -453,6 +295,175 @@ function ContractCard({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function CardMilestonesBlock({
+  milestones,
+  currency,
+  contractId,
+  onVerify,
+}: {
+  milestones: Milestone[];
+  currency: string;
+  contractId: string;
+  onVerify: (documentId: string, milestoneId: string) => void;
+}) {
+  const completedCount = milestones.filter(
+    (m) => m.status === "completed",
+  ).length;
+  const totalCount = milestones.length;
+
+  return (
+    <div className="mt-4 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+          Milestones
+        </p>
+        <span className="text-[11px] text-text-tertiary">
+          {completedCount}/{totalCount} complete
+        </span>
+      </div>
+      {/* Progress bar */}
+      <div className="h-1 overflow-hidden rounded-full bg-separator">
+        <div
+          className="h-full rounded-full bg-accent-green transition-all duration-500"
+          style={{
+            width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
+          }}
+        />
+      </div>
+      {milestones.map((ms) => {
+        const status = MILESTONE_STATUS[ms.status] ?? MILESTONE_STATUS.pending;
+        const StatusIcon = status.icon;
+
+        return (
+          <div
+            key={ms.id}
+            className={cn(
+              "rounded-lg border p-3 transition-colors",
+              ms.status === "completed"
+                ? "border-accent-green/20 bg-accent-green/5"
+                : ms.status === "failed"
+                  ? "border-accent-red/20 bg-accent-red/5"
+                  : ms.status === "disputed"
+                    ? "border-accent-orange/20 bg-accent-orange/5"
+                    : "border-separator bg-surface-tertiary",
+            )}
+          >
+            {/* Milestone header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <StatusIcon
+                  className={cn("mt-0.5 size-4 shrink-0", status.color)}
+                />
+                <div>
+                  <p className="text-sm font-medium text-text-primary">
+                    {ms.description}
+                  </p>
+                  {ms.expectedTimeline && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-text-tertiary">
+                      <Clock className="size-3" />
+                      {ms.expectedTimeline}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className={cn("text-sm font-semibold", status.color)}>
+                {currency}
+                {(ms.amount / 100).toFixed(2)}
+              </span>
+            </div>
+
+            {/* Completion criteria checkboxes */}
+            {ms.completionCriteria && ms.completionCriteria.length > 0 && (
+              <div className="mt-2 space-y-1 pl-6">
+                {ms.completionCriteria.map((c, i) => (
+                  <CriterionCheckbox
+                    key={i}
+                    label={c}
+                    checked={ms.status === "completed"}
+                    size="sm"
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Fallback: plain condition as checkbox */}
+            {(!ms.completionCriteria || ms.completionCriteria.length === 0) &&
+              ms.condition && (
+                <div className="mt-2 pl-6">
+                  <CriterionCheckbox
+                    label={ms.condition}
+                    checked={ms.status === "completed"}
+                    size="sm"
+                  />
+                </div>
+              )}
+
+            {/* Verification method */}
+            {ms.verificationMethod && (
+              <div className="mt-2 flex items-center gap-1.5 pl-6">
+                <Shield className="size-3 text-text-tertiary" />
+                <span className="text-[10px] text-text-tertiary">
+                  {ms.verificationMethod}
+                </span>
+              </div>
+            )}
+
+            {/* Verification result (compact) */}
+            {ms.verificationResult && (
+              <div
+                className={cn(
+                  "ml-6 mt-2 rounded border px-2 py-1.5 text-[11px]",
+                  ms.verificationResult.outcome === "passed"
+                    ? "border-accent-green/30 bg-accent-green/5 text-accent-green"
+                    : ms.verificationResult.outcome === "failed"
+                      ? "border-accent-red/30 bg-accent-red/5 text-accent-red"
+                      : "border-accent-orange/30 bg-accent-orange/5 text-accent-orange",
+                )}
+              >
+                <span className="font-bold uppercase">
+                  {ms.verificationResult.outcome}
+                </span>
+                {ms.verificationResult.verifiedAmount !== undefined && (
+                  <span className="ml-2 text-text-secondary">
+                    {currency}
+                    {(ms.verificationResult.verifiedAmount / 100).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="mt-2 flex items-center justify-between pl-6">
+              {ms.status === "pending" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
+                  onClick={() => onVerify(contractId, ms.id)}
+                >
+                  <Shield className="mr-1 size-3" />
+                  Verify
+                </Button>
+              )}
+              {ms.status !== "pending" && (
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    status.bg,
+                    status.color,
+                  )}
+                >
+                  {status.label}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
