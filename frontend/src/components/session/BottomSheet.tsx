@@ -4,7 +4,7 @@ import { useDocumentStore } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
 import { cn, currencySymbol } from "@/lib/utils";
 import { LineItemRow } from "@/components/contracts/LineItemRow";
-import { CheckCircle2, Circle, Shield } from "lucide-react";
+import { CheckCircle2, Circle, Shield, X } from "lucide-react";
 
 interface BottomSheetProps {
   panelWs: React.RefObject<WebSocket | null>;
@@ -65,23 +65,33 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
           visible ? "translate-y-0" : "translate-y-full",
         )}
       >
-        {/* Handle bar */}
-        <button
-          type="button"
-          aria-label="Dismiss contract sheet"
-          className="flex w-full flex-col items-center gap-1 py-3"
-          onClick={hideBottomSheet}
-        >
-          <div className="h-1 w-10 rounded-full bg-gray-3" />
-          <span
-            className={cn(
-              "text-[9px] font-medium uppercase tracking-widest",
-              isFullySigned ? "text-accent-green" : "text-text-tertiary",
-            )}
+        {/* Handle bar + close button */}
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="Dismiss contract sheet"
+            className="flex w-full flex-col items-center gap-1 py-3"
+            onClick={hideBottomSheet}
           >
-            {isFullySigned ? "Agreement Active" : "Contract Ready"}
-          </span>
-        </button>
+            <div className="h-1 w-10 rounded-full bg-gray-3" />
+            <span
+              className={cn(
+                "text-[9px] font-medium uppercase tracking-widest",
+                isFullySigned ? "text-accent-green" : "text-text-tertiary",
+              )}
+            >
+              {isFullySigned ? "Agreement Active" : "Contract Ready"}
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute right-3 top-2.5 rounded-full p-1 text-text-tertiary hover:bg-separator hover:text-text-primary"
+            onClick={hideBottomSheet}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
 
         <div className="px-5 pb-6">
           {/* Header */}

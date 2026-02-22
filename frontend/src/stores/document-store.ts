@@ -136,11 +136,13 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
           milestones.set(ms.id, ms);
         }
       }
-      return set({
+      return set((s) => ({
         currentDocument: doc,
         milestones,
-        bottomSheetVisible: true,
-      });
+        // Only auto-show bottom sheet if no document existed before
+        bottomSheetVisible:
+          s.currentDocument === null ? true : s.bottomSheetVisible,
+      }));
     },
 
     addSignature: (userId) =>
