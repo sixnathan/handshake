@@ -298,6 +298,11 @@ function LineItemsSection({
                 <p className="text-sm font-medium text-text-primary">
                   {li.description}
                 </p>
+                {li.condition && (
+                  <p className="mt-0.5 text-[11px] text-text-tertiary">
+                    {li.condition}
+                  </p>
+                )}
                 {li.factors && li.factors.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {li.factors.map((f, fi) => (
