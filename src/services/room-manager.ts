@@ -566,13 +566,15 @@ export class RoomManager implements IRoomManager {
     });
 
     // Wire peer message routing
+    // peerA emits "message" when peerB sends (nat1 sends) → deliver to nat2 (slotA)
+    // peerB emits "message" when peerA sends (nat2 sends) → deliver to nat1 (slotB)
     peerA.on("message", (msg: AgentMessage) => {
       room.negotiation?.handleAgentMessage(msg);
-      slotB.agent.receiveAgentMessage(msg);
+      slotA.agent.receiveAgentMessage(msg);
     });
     peerB.on("message", (msg: AgentMessage) => {
       room.negotiation?.handleAgentMessage(msg);
-      slotA.agent.receiveAgentMessage(msg);
+      slotB.agent.receiveAgentMessage(msg);
     });
 
     // Build tools for each user and start agents
