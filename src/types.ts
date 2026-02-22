@@ -92,7 +92,7 @@ export interface DetectedTerm {
 }
 
 export interface TriggerEvent {
-  type: "keyword" | "smart";
+  type: "keyword" | "smart" | "dual_keyword";
   confidence: number;
   matchedText: string;
   detectedTerms?: DetectedTerm[];
@@ -137,6 +137,16 @@ export interface LineItem {
   factors?: PriceFactor[];
 }
 
+export interface ProposalMilestone {
+  lineItemIndex: number; // which line item (0-based)
+  title: string; // clear, specific deliverable name
+  deliverables: string[]; // specific outputs/results
+  verificationMethod: string; // how to verify (inspection, receipt, phone call, etc.)
+  completionCriteria: string[]; // explicit checklist — ALL must be true
+  amount: number; // pence
+  expectedTimeline?: string; // "Within 2 hours", "Same day", etc.
+}
+
 export interface AgentProposal {
   summary: string;
   lineItems: LineItem[];
@@ -145,6 +155,7 @@ export interface AgentProposal {
   conditions: string[];
   expiresAt: number;
   factorSummary?: string; // plain English explanation of how factors determine price
+  milestones?: ProposalMilestone[];
 }
 
 export interface NegotiationRound {
@@ -188,6 +199,10 @@ export interface Milestone {
   amount: number;
   condition: string;
   status: MilestoneStatus;
+  deliverables?: string[];
+  verificationMethod?: string;
+  completionCriteria?: string[];
+  expectedTimeline?: string;
   escrowHoldId?: string;
   completedAt?: number;
   completedBy?: UserId;

@@ -1,8 +1,9 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
-import { cn } from "@/lib/utils";
+import { cn, currencySymbol } from "@/lib/utils";
+import { CheckCircle2, Circle, Shield } from "lucide-react";
 
 interface BottomSheetProps {
   panelWs: React.RefObject<WebSocket | null>;
@@ -18,17 +19,26 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
   const userId = useSessionStore((s) => s.userId);
   const signedRef = useRef(false);
 
+  // Reset optimistic signing state when document changes
+  const docId = doc?.id;
+  useEffect(() => {
+    signedRef.current = false;
+  }, [docId]);
+
   if (!doc) return null;
 
+  const currency = currencySymbol(doc.terms.currency);
   const alreadySigned =
     signedRef.current || doc.signatures.some((s) => s.userId === userId);
   const sigCount = doc.signatures.length;
   const totalParties = doc.parties.length;
   const isFullySigned = doc.status === "fully_signed";
 
-  const pendingMilestones = [...milestones.values()].filter(
-    (m) => m.status === "pending",
+  const milestonesArray = [...milestones.values()];
+  const completedMs = milestonesArray.filter(
+    (m) => m.status === "completed",
   ).length;
+  const totalMs = milestonesArray.length;
 
   function handleSign() {
     if (!panelWs.current || !doc || !userId) return;
@@ -48,6 +58,8 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
     >
       {/* Handle bar */}
       <button
+        type="button"
+        aria-label="Dismiss contract sheet"
         className="flex w-full justify-center py-3"
         onClick={hideBottomSheet}
       >
@@ -55,41 +67,100 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
       </button>
 
       <div className="px-5 pb-6">
-        <h3 className="mb-2 text-lg font-bold text-text-primary">
-          {doc.title}
-        </h3>
-        <p className="mb-2 text-sm leading-relaxed text-text-secondary">
-          {doc.content.length > 200
-            ? doc.content.slice(0, 200) + "..."
-            : doc.content}
-        </p>
-
-        {/* Signature status */}
-        <p
-          className={cn(
-            "mb-1 text-xs",
-            isFullySigned ? "text-accent-green" : "text-accent-orange",
-          )}
-        >
-          Signatures: {sigCount}/{totalParties}
-          {isFullySigned && " \u2014 Complete!"}
-        </p>
-
-        {/* Milestone count */}
-        {milestones.size > 0 && (
-          <p
-            className={cn(
-              "mb-4 text-xs",
-              pendingMilestones === 0
-                ? "text-accent-green"
-                : "text-text-secondary",
-            )}
-          >
-            {pendingMilestones > 0
-              ? `Milestones: ${pendingMilestones} pending`
-              : "All milestones complete!"}
+        {/* Header */}
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-bold text-text-primary">
+              {doc.terms.summary || doc.title}
+            </h3>
+            <p className="mt-0.5 text-xs text-text-tertiary">
+              {doc.parties.map((p) => p.name).join(" & ")}
+            </p>
+          </div>
+          <p className="text-lg font-bold text-text-primary">
+            {currency}
+            {(doc.terms.totalAmount / 100).toFixed(2)}
           </p>
-        )}
+        </div>
+
+        {/* Line items compact list */}
+        <div className="mb-3 space-y-1">
+          {doc.terms.lineItems.map((li, i) => {
+            const hasRange =
+              li.minAmount !== undefined && li.maxAmount !== undefined;
+            return (
+              <div
+                key={i}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="text-text-secondary">{li.description}</span>
+                <span className="font-medium text-text-primary">
+                  {hasRange ? (
+                    <>
+                      {currency}
+                      {(li.minAmount! / 100).toFixed(2)}&ndash;{currency}
+                      {(li.maxAmount! / 100).toFixed(2)}
+                    </>
+                  ) : (
+                    <>
+                      {currency}
+                      {(li.amount / 100).toFixed(2)}
+                    </>
+                  )}
+                  <span
+                    className={cn(
+                      "ml-1",
+                      li.type === "immediate"
+                        ? "text-accent-green"
+                        : li.type === "escrow"
+                          ? "text-accent-blue"
+                          : "text-accent-orange",
+                    )}
+                  >
+                    {li.type}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Status row */}
+        <div className="mb-4 flex items-center gap-4">
+          {/* Signatures */}
+          <div className="flex items-center gap-1.5">
+            {isFullySigned ? (
+              <CheckCircle2 className="size-3.5 text-accent-green" />
+            ) : (
+              <Circle className="size-3.5 text-accent-orange" />
+            )}
+            <span
+              className={cn(
+                "text-xs",
+                isFullySigned ? "text-accent-green" : "text-accent-orange",
+              )}
+            >
+              {sigCount}/{totalParties} signed
+            </span>
+          </div>
+
+          {/* Milestones */}
+          {totalMs > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Shield className="size-3.5 text-text-tertiary" />
+              <span
+                className={cn(
+                  "text-xs",
+                  completedMs === totalMs
+                    ? "text-accent-green"
+                    : "text-text-secondary",
+                )}
+              >
+                {completedMs}/{totalMs} milestones
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Buttons */}
         <div className="flex gap-3">
@@ -105,7 +176,7 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
             className="border-separator text-text-secondary"
             onClick={showOverlay}
           >
-            View Full
+            View Contract
           </Button>
         </div>
       </div>

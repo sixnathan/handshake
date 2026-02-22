@@ -1,52 +1,44 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DocumentOverlay } from "@/components/session/DocumentOverlay";
 import { VerificationModal } from "@/components/contracts/VerificationModal";
+import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import { useSessionStore } from "@/stores/session-store";
 import { useVerificationStore } from "@/stores/verification-store";
-import { loadContracts } from "@/hooks/use-profile";
-import type { LegalDocument, Milestone } from "@/stores/document-store";
+import { loadContracts, clearContracts } from "@/hooks/use-profile";
+import type { LegalDocument } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
-import { ArrowLeft, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { MILESTONE_STATUS } from "@/lib/milestone-config";
+import {
+  ArrowLeft,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  Clock,
+  Shield,
+} from "lucide-react";
 
 interface SavedContract extends LegalDocument {
   conversationHistory?: { speaker: string; text: string; timestamp: number }[];
 }
-
-const STATUS_CONFIG: Record<
-  Milestone["status"],
-  { label: string; dot: string; text: string }
-> = {
-  pending: {
-    label: "Pending",
-    dot: "bg-accent-orange",
-    text: "text-accent-orange",
-  },
-  verifying: {
-    label: "Verifying",
-    dot: "bg-accent-blue animate-pulse",
-    text: "text-accent-blue",
-  },
-  completed: {
-    label: "Completed",
-    dot: "bg-accent-green",
-    text: "text-accent-green",
-  },
-  failed: { label: "Failed", dot: "bg-accent-red", text: "text-accent-red" },
-  disputed: {
-    label: "Disputed",
-    dot: "bg-accent-purple",
-    text: "text-accent-purple",
-  },
-};
 
 export function ContractsScreen() {
   const backToSetup = useSessionStore((s) => s.backToSetup);
   const [viewDoc, setViewDoc] = useState<SavedContract | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
 
-  const contracts = useMemo(() => loadContracts() as SavedContract[], []);
+  const [contractList, setContractList] = useState<SavedContract[]>(
+    () => loadContracts() as SavedContract[],
+  );
+
+  const handleClearAll = useCallback(() => {
+    clearContracts();
+    setContractList([]);
+    setViewDoc(null);
+    setExpandedHistory(null);
+  }, []);
 
   const openVerification = useVerificationStore((s) => s.openModal);
 
@@ -69,16 +61,29 @@ export function ContractsScreen() {
         >
           <ArrowLeft className="size-4" />
         </Button>
-        <h1 className="text-xl font-bold text-text-primary">My Contracts</h1>
+        <h1 className="flex-1 text-xl font-bold text-text-primary">
+          My Contracts
+        </h1>
+        {contractList.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-accent-red/30 text-accent-red hover:bg-accent-red/10"
+            onClick={handleClearAll}
+          >
+            <Trash2 className="mr-1.5 size-3.5" />
+            Clear All
+          </Button>
+        )}
       </header>
 
       {/* Content */}
       <ScrollArea className="flex-1 p-6">
-        {contracts.length === 0 ? (
+        {contractList.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {contracts.map((contract) => (
+            {contractList.map((contract) => (
               <ContractCard
                 key={contract.id}
                 contract={contract}
@@ -141,69 +146,220 @@ function ContractCard({
 }: ContractCardProps) {
   const currency = currencySymbol(contract.terms.currency);
   const total = (contract.terms.totalAmount / 100).toFixed(2);
-  const date = new Date(contract.createdAt).toLocaleDateString();
+  const date = new Date(contract.createdAt).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
   const parties = contract.parties.map((p) => p.name).join(" & ");
   const hasHistory =
     contract.conversationHistory && contract.conversationHistory.length > 0;
+  const isFullySigned = contract.status === "fully_signed";
 
   return (
     <div className="rounded-xl border border-separator bg-surface-secondary p-5">
       {/* Top row */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-text-primary">
-            {contract.title}
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                isFullySigned
+                  ? "bg-accent-green/10 text-accent-green"
+                  : "bg-accent-orange/10 text-accent-orange",
+              )}
+            >
+              {isFullySigned ? "Signed" : "Pending"}
+            </span>
+            <span className="text-xs text-text-tertiary">{date}</span>
+          </div>
+          <h3 className="mt-1 text-base font-semibold text-text-primary">
+            {contract.terms.summary || contract.title}
           </h3>
-          <p className="mt-0.5 text-xs text-text-tertiary">
-            {date} &middot; {parties}
-          </p>
+          <p className="mt-0.5 text-xs text-text-tertiary">{parties}</p>
         </div>
-        <span className="shrink-0 text-lg font-bold text-accent-green">
-          {currency}
-          {total}
-        </span>
+        <div className="text-right">
+          <p className="text-xs text-text-tertiary">Total</p>
+          <span className="text-lg font-bold text-text-primary">
+            {currency}
+            {total}
+          </span>
+        </div>
       </div>
 
-      {/* Milestones */}
-      {contract.milestones && contract.milestones.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {contract.milestones.map((ms) => {
-            const cfg = STATUS_CONFIG[ms.status] ?? STATUS_CONFIG.pending;
+      {/* Line items summary */}
+      {contract.terms.lineItems.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {contract.terms.lineItems.map((li, i) => {
+            const hasRange =
+              li.minAmount !== undefined && li.maxAmount !== undefined;
             return (
               <div
-                key={ms.id}
-                className="flex items-center gap-3 rounded-lg border border-separator bg-surface-tertiary p-3"
+                key={i}
+                className="flex items-center justify-between text-xs"
               >
-                <div
-                  className={cn("size-2.5 shrink-0 rounded-full", cfg.dot)}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-text-primary">{ms.description}</p>
-                  <p className="text-xs text-text-tertiary">{ms.condition}</p>
-                </div>
-                <span className={cn("text-sm font-semibold", cfg.text)}>
-                  {currency}
-                  {(ms.amount / 100).toFixed(2)}
-                </span>
-                {ms.status === "pending" && (
-                  <Button
-                    size="sm"
-                    className="bg-accent-blue text-white hover:bg-accent-blue/90"
-                    onClick={() => onVerify(contract.id, ms.id)}
+                <span className="text-text-secondary">{li.description}</span>
+                <span className="font-medium text-text-primary">
+                  {hasRange ? (
+                    <>
+                      {currency}
+                      {(li.minAmount! / 100).toFixed(2)}&ndash;{currency}
+                      {(li.maxAmount! / 100).toFixed(2)}
+                    </>
+                  ) : (
+                    <>
+                      {currency}
+                      {(li.amount / 100).toFixed(2)}
+                    </>
+                  )}
+                  <span
+                    className={cn(
+                      "ml-1.5",
+                      li.type === "immediate"
+                        ? "text-accent-green"
+                        : li.type === "escrow"
+                          ? "text-accent-blue"
+                          : "text-accent-orange",
+                    )}
                   >
-                    Verify
-                  </Button>
-                )}
-                {ms.status !== "pending" && (
-                  <span className={cn("text-xs font-medium", cfg.text)}>
-                    {cfg.label}
+                    {li.type}
                   </span>
-                )}
+                </span>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Milestones */}
+      {contract.milestones &&
+        contract.milestones.length > 0 &&
+        (() => {
+          const completedCount = contract.milestones!.filter(
+            (m) => m.status === "completed",
+          ).length;
+          const totalCount = contract.milestones!.length;
+          return (
+            <div className="mt-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+                  Milestones
+                </p>
+                <span className="text-[11px] text-text-tertiary">
+                  {completedCount}/{totalCount} complete
+                </span>
+              </div>
+              {/* Progress bar */}
+              <div className="h-1 overflow-hidden rounded-full bg-separator">
+                <div
+                  className="h-full rounded-full bg-accent-green transition-all duration-500"
+                  style={{
+                    width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+              {contract.milestones.map((ms) => {
+                const status =
+                  MILESTONE_STATUS[ms.status] ?? MILESTONE_STATUS.pending;
+                const StatusIcon = status.icon;
+
+                return (
+                  <div
+                    key={ms.id}
+                    className="rounded-lg border border-separator bg-surface-tertiary p-3"
+                  >
+                    {/* Milestone header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <StatusIcon
+                          className={cn("mt-0.5 size-4 shrink-0", status.color)}
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-text-primary">
+                            {ms.description}
+                          </p>
+                          {ms.expectedTimeline && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-text-tertiary">
+                              <Clock className="size-3" />
+                              {ms.expectedTimeline}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={cn("text-sm font-semibold", status.color)}
+                      >
+                        {currency}
+                        {(ms.amount / 100).toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Completion criteria checkboxes */}
+                    {ms.completionCriteria &&
+                      ms.completionCriteria.length > 0 && (
+                        <div className="mt-2 space-y-1 pl-6">
+                          {ms.completionCriteria.map((c, i) => (
+                            <CriterionCheckbox
+                              key={i}
+                              label={c}
+                              checked={ms.status === "completed"}
+                              size="sm"
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                    {/* Fallback: plain condition */}
+                    {(!ms.completionCriteria ||
+                      ms.completionCriteria.length === 0) &&
+                      ms.condition && (
+                        <p className="mt-1 pl-6 text-xs text-text-tertiary">
+                          {ms.condition}
+                        </p>
+                      )}
+
+                    {/* Verification method */}
+                    {ms.verificationMethod && (
+                      <div className="mt-2 flex items-center gap-1.5 pl-6">
+                        <Shield className="size-3 text-text-tertiary" />
+                        <span className="text-[10px] text-text-tertiary">
+                          {ms.verificationMethod}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="mt-2 flex items-center justify-between pl-6">
+                      {ms.status === "pending" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
+                          onClick={() => onVerify(contract.id, ms.id)}
+                        >
+                          <Shield className="mr-1 size-3" />
+                          Verify
+                        </Button>
+                      )}
+                      {ms.status !== "pending" && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            status.bg,
+                            status.color,
+                          )}
+                        >
+                          {status.label}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
       {/* Actions row */}
       <div className="mt-4 flex items-center gap-3">
@@ -214,7 +370,7 @@ function ContractCard({
           onClick={onViewDoc}
         >
           <FileText className="mr-1.5 size-3.5" />
-          View Full Document
+          View Contract
         </Button>
         {hasHistory && (
           <Button

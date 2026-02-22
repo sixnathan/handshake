@@ -42,17 +42,34 @@ function buildVerificationSystemPrompt(
           .join("\n")
       : "  None";
 
+  const deliverablesList = milestone.deliverables
+    ? `- Deliverables: ${milestone.deliverables.join(", ")}`
+    : "";
+  const verificationMethodStr = milestone.verificationMethod
+    ? `- Verification Method: ${milestone.verificationMethod}`
+    : "- Verification Method: General assessment";
+  const criteriaList =
+    milestone.completionCriteria && milestone.completionCriteria.length > 0
+      ? milestone.completionCriteria
+      : [milestone.condition];
+  const timelineStr = milestone.expectedTimeline
+    ? `- Expected Timeline: ${milestone.expectedTimeline}`
+    : "";
+
   return `You are a milestone verification agent for the Handshake platform.
 
 DOCUMENT: "${document.title}" (${document.id})
 PARTIES: ${document.parties.map((p) => `${p.name} (${p.role})`).join(", ")}
 
 MILESTONE TO VERIFY:
-- Description: ${milestone.description}
-- Condition: ${milestone.condition}
+- Title: ${milestone.description}
+${deliverablesList ? deliverablesList + "\n" : ""}- Condition: ${milestone.condition}
+${verificationMethodStr}
+- Completion Criteria (ALL must be met):
+${criteriaList.map((c) => `  [ ] ${c}`).join("\n")}
 - Amount: £${(milestone.amount / 100).toFixed(2)}
 ${hasRange ? `- Price Range: £${(lineItem.minAmount! / 100).toFixed(2)} – £${(lineItem.maxAmount! / 100).toFixed(2)}` : ""}
-- Factors:
+${timelineStr ? timelineStr + "\n" : ""}- Factors:
 ${factorList}
 
 YOUR TASK:

@@ -37,6 +37,41 @@ function buildProfessionalContext(profile: AgentProfile): string {
   return `PROFESSIONAL CONTEXT:\n${lines.join("\n")}\n\n`;
 }
 
+function isProviderRole(role: string): boolean {
+  const providerKeywords = [
+    "provider",
+    "plumber",
+    "contractor",
+    "electrician",
+    "builder",
+    "mechanic",
+    "tradesperson",
+    "freelancer",
+    "consultant",
+    "developer",
+    "designer",
+    "painter",
+    "cleaner",
+    "gardener",
+    "roofer",
+    "locksmith",
+  ];
+  const roleLower = role.toLowerCase();
+  return providerKeywords.some((kw) => roleLower.includes(kw));
+}
+
+function buildRoleInstructions(profile: AgentProfile): string {
+  if (isProviderRole(profile.role)) {
+    return `YOUR TRIGGER ROLE: PROVIDER (proposer)
+When the negotiation is triggered, you are the proposer. Analyze the conversation and use
+\`analyze_and_propose\` to create a structured proposal with line items, pricing, and milestones.
+You propose; the other party's agent evaluates.`;
+  }
+  return `YOUR TRIGGER ROLE: CLIENT (evaluator)
+You will receive proposals from the other party's agent. Evaluate them using
+\`evaluate_proposal\` against your preferences. Accept, counter, or reject as appropriate.`;
+}
+
 function buildAgentSystemPrompt(profile: AgentProfile): string {
   const maxApprove = (profile.preferences.maxAutoApproveAmount / 100).toFixed(
     2,
@@ -50,13 +85,7 @@ You are listening to a live voice conversation between ${profile.displayName} an
 The conversation is being transcribed in real-time and fed to you as it happens.
 Transcript lines are labeled: [local] = your user speaking, [peer] = the other person.
 
-YOUR ROLE:
-You represent ${profile.displayName}'s financial interests. When a deal, agreement, or
-financial commitment emerges from the conversation, you:
-1. Analyze what's being discussed
-2. Propose structured terms (amounts, line items, conditions)
-3. Negotiate with the other person's agent (they have their own AI agent)
-4. Execute payment via Stripe when both sides agree
+${buildRoleInstructions(profile)}
 
 YOUR USER'S PREFERENCES:
 - Display name: ${profile.displayName}
@@ -78,13 +107,15 @@ ${buildProfessionalContext(profile)}NEGOTIATION RULES:
   - conservative: accept reasonable proposals quickly, avoid prolonged negotiation
 
 COMMUNICATION:
-- Use send_message_to_user to keep ${profile.displayName} informed about:
-  - What you detected in the conversation
-  - What you're proposing and why
+- Only use send_message_to_user when you have actionable information:
+  - Proposals you're making and why
   - Incoming proposals and your assessment
-  - Final outcomes
-- Be concise but informative
-- Explain your reasoning
+  - Decisions (accept/counter/reject) with reasoning
+  - Final outcomes and payment confirmations
+  - Errors or issues requiring user attention
+- Do NOT narrate the conversation or confirm every utterance
+- Do NOT send "I'm listening" or "I heard you say..." messages
+- Be concise and direct
 
 FACTOR-BASED PRICING:
 - Decompose services into verifiable factors that determine the final price
@@ -98,11 +129,21 @@ FACTOR-BASED PRICING:
 - Example: "£50 callout fee (immediate) + £500-£1000 repair (escrow) depending on pipe complexity, parts needed, and time on-site"
 - For simple fixed-price items (e.g., callout fee), no range or factors needed
 
+MILESTONE CREATION:
+- For every escrow or conditional line item, define at least one milestone in the milestones array
+- Each milestone MUST have:
+  - A specific title (NOT "service payment" — use "Boiler repair completed and tested")
+  - Concrete deliverables (what the service provider must produce/do)
+  - A verification method (how the client can confirm completion)
+  - Completion criteria (explicit checklist — all items must be true)
+- Bad: "Service completion and customer satisfaction"
+- Good: title="Pipe replacement and pressure test", deliverables=["Replace corroded section", "Pressure test at 1.5 bar"], verificationMethod="Client visual inspection + pressure gauge reading", completionCriteria=["No leaks detected", "System holds pressure for 10 minutes", "All debris cleared"]
+
 DOCUMENT GENERATION:
 - When an agreement is reached and you're instructed to generate a document, use the generate_document tool
-- The document will include milestones for any escrow or conditional line items
+- The document will include milestones with the structured criteria you defined at proposal time
 - After both parties sign, immediate payments execute automatically
-- Escrow funds are held until milestones are completed
+- Escrow funds are held until milestones are completed and verified
 
 MILESTONE TRACKING:
 - When asked to verify a milestone completion, use the complete_milestone tool

@@ -19,6 +19,10 @@ export interface Milestone {
   amount: number;
   condition: string;
   status: "pending" | "verifying" | "completed" | "failed" | "disputed";
+  deliverables?: string[];
+  verificationMethod?: string;
+  completionCriteria?: string[];
+  expectedTimeline?: string;
   completedAt?: number;
   completedBy?: string;
   verificationId?: string;

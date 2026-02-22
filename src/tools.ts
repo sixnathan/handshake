@@ -10,6 +10,7 @@ import type {
 } from "./interfaces.js";
 import type {
   AgentProposal,
+  ProposalMilestone,
   PriceFactor,
   UserId,
   NegotiationId,
@@ -115,6 +116,56 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             description:
               "Plain English explanation of how factors determine the final price",
           },
+          milestones: {
+            type: "array",
+            description:
+              "Required for escrow/conditional line items. Define specific, verifiable milestones with clear completion criteria.",
+            items: {
+              type: "object",
+              properties: {
+                lineItemIndex: {
+                  type: "number",
+                  description: "Index of the linked line item (0-based)",
+                },
+                title: {
+                  type: "string",
+                  description:
+                    "Specific deliverable (e.g., 'Boiler diagnosis and quote', not 'Service payment')",
+                },
+                deliverables: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "What must be produced/completed",
+                },
+                verificationMethod: {
+                  type: "string",
+                  description:
+                    "How to verify: 'Visual inspection by client', 'Phone confirmation', 'Receipt/invoice provided'",
+                },
+                completionCriteria: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Checklist — ALL must be satisfied",
+                },
+                amount: {
+                  type: "number",
+                  description: "Pence",
+                },
+                expectedTimeline: {
+                  type: "string",
+                  description: "When completion is expected",
+                },
+              },
+              required: [
+                "lineItemIndex",
+                "title",
+                "deliverables",
+                "verificationMethod",
+                "completionCriteria",
+                "amount",
+              ],
+            },
+          },
         },
         required: ["summary", "lineItems", "currency"],
       },
@@ -155,6 +206,28 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             0,
           );
 
+          const milestones: ProposalMilestone[] | undefined = Array.isArray(
+            input.milestones,
+          )
+            ? (input.milestones as Array<Record<string, unknown>>).map(
+                (m): ProposalMilestone => ({
+                  lineItemIndex: Number(m.lineItemIndex),
+                  title: String(m.title),
+                  deliverables: Array.isArray(m.deliverables)
+                    ? (m.deliverables as string[]).map(String)
+                    : [],
+                  verificationMethod: String(m.verificationMethod),
+                  completionCriteria: Array.isArray(m.completionCriteria)
+                    ? (m.completionCriteria as string[]).map(String)
+                    : [],
+                  amount: Number(m.amount),
+                  expectedTimeline: m.expectedTimeline
+                    ? String(m.expectedTimeline)
+                    : undefined,
+                }),
+              )
+            : undefined;
+
           const proposal: AgentProposal = {
             summary: String(input.summary),
             lineItems,
@@ -167,6 +240,8 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             factorSummary: input.factorSummary
               ? String(input.factorSummary)
               : undefined,
+            milestones:
+              milestones && milestones.length > 0 ? milestones : undefined,
           };
 
           const negotiation = deps.negotiation.createNegotiation(
@@ -258,6 +333,37 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
               currency: { type: "string" },
               conditions: { type: "array", items: { type: "string" } },
               factorSummary: { type: "string" },
+              milestones: {
+                type: "array",
+                description:
+                  "Verifiable milestones for escrow/conditional line items",
+                items: {
+                  type: "object",
+                  properties: {
+                    lineItemIndex: { type: "number" },
+                    title: { type: "string" },
+                    deliverables: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    verificationMethod: { type: "string" },
+                    completionCriteria: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    amount: { type: "number" },
+                    expectedTimeline: { type: "string" },
+                  },
+                  required: [
+                    "lineItemIndex",
+                    "title",
+                    "deliverables",
+                    "verificationMethod",
+                    "completionCriteria",
+                    "amount",
+                  ],
+                },
+              },
             },
           },
         },
@@ -333,6 +439,27 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
                 };
               });
 
+              const counterMilestones: ProposalMilestone[] | undefined =
+                Array.isArray(cp.milestones)
+                  ? (cp.milestones as Array<Record<string, unknown>>).map(
+                      (m): ProposalMilestone => ({
+                        lineItemIndex: Number(m.lineItemIndex),
+                        title: String(m.title),
+                        deliverables: Array.isArray(m.deliverables)
+                          ? (m.deliverables as string[]).map(String)
+                          : [],
+                        verificationMethod: String(m.verificationMethod),
+                        completionCriteria: Array.isArray(m.completionCriteria)
+                          ? (m.completionCriteria as string[]).map(String)
+                          : [],
+                        amount: Number(m.amount),
+                        expectedTimeline: m.expectedTimeline
+                          ? String(m.expectedTimeline)
+                          : undefined,
+                      }),
+                    )
+                  : undefined;
+
               const counterProposal: AgentProposal = {
                 summary: String(cp.summary ?? "Counter-proposal"),
                 lineItems,
@@ -348,6 +475,10 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
                 factorSummary: cp.factorSummary
                   ? String(cp.factorSummary)
                   : undefined,
+                milestones:
+                  counterMilestones && counterMilestones.length > 0
+                    ? counterMilestones
+                    : undefined,
               };
 
               const counterMsg = {
@@ -645,24 +776,44 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             conversationContext + additionalNotes,
           );
 
-          // Extract milestones from escrow/conditional line items
-          const milestones: Milestone[] = negotiation.currentProposal.lineItems
-            .map((li, index) => {
-              if (li.type === "escrow" || li.type === "conditional") {
-                const milestone: Milestone = {
-                  id: `ms_${doc.id}_${index}` as MilestoneId,
-                  documentId: doc.id as DocumentId,
-                  lineItemIndex: index,
-                  description: li.description,
-                  amount: li.amount,
-                  condition: li.condition ?? "Completion of work",
-                  status: "pending",
-                };
-                return milestone;
-              }
-              return null;
-            })
-            .filter((m): m is Milestone => m !== null);
+          // Build milestones from proposal milestones (rich) or fall back to line items (basic)
+          const proposalMilestones =
+            negotiation.currentProposal.milestones ?? [];
+          const milestones: Milestone[] =
+            proposalMilestones.length > 0
+              ? proposalMilestones.map(
+                  (pm): Milestone => ({
+                    id: `ms_${doc.id}_${pm.lineItemIndex}` as MilestoneId,
+                    documentId: doc.id as DocumentId,
+                    lineItemIndex: pm.lineItemIndex,
+                    description: pm.title,
+                    amount: pm.amount,
+                    condition: pm.completionCriteria.join("; "),
+                    deliverables: pm.deliverables,
+                    verificationMethod: pm.verificationMethod,
+                    completionCriteria: pm.completionCriteria,
+                    expectedTimeline: pm.expectedTimeline,
+                    status: "pending",
+                  }),
+                )
+              : // Fallback: extract from escrow/conditional line items
+                negotiation.currentProposal.lineItems
+                  .map((li, index) => {
+                    if (li.type === "escrow" || li.type === "conditional") {
+                      const milestone: Milestone = {
+                        id: `ms_${doc.id}_${index}` as MilestoneId,
+                        documentId: doc.id as DocumentId,
+                        lineItemIndex: index,
+                        description: li.description,
+                        amount: li.amount,
+                        condition: li.condition ?? "Completion of work",
+                        status: "pending",
+                      };
+                      return milestone;
+                    }
+                    return null;
+                  })
+                  .filter((m): m is Milestone => m !== null);
 
           if (milestones.length > 0) {
             deps.document.updateMilestones(doc.id, milestones);

@@ -222,6 +222,16 @@ export class DocumentService extends EventEmitter implements IDocumentService {
       ? `\nFACTOR SUMMARY:\n${proposal.factorSummary}\n`
       : "";
 
+    const milestoneSection =
+      proposal.milestones && proposal.milestones.length > 0
+        ? `\nMILESTONES:\n${proposal.milestones
+            .map(
+              (m, i) =>
+                `Milestone ${i + 1}: ${m.title}\n  Deliverables: ${m.deliverables.join(", ")}\n  Verification: ${m.verificationMethod}\n  Criteria: ${m.completionCriteria.join("; ")}\n  Amount: £${(m.amount / 100).toFixed(2)}\n  Timeline: ${m.expectedTimeline ?? "TBD"}`,
+            )
+            .join("\n")}\n`
+        : "\nMILESTONES:\nNone — immediate payment only\n";
+
     return `Generate a binding agreement document for the following:
 
 PARTIES:
@@ -233,7 +243,7 @@ Total (maximum): £${(proposal.totalAmount / 100).toFixed(2)} ${proposal.currenc
 
 LINE ITEMS:
 ${lineItems}
-${factorSection}
+${factorSection}${milestoneSection}
 CONDITIONS:
 ${proposal.conditions.length > 0 ? proposal.conditions.map((c) => `- ${c}`).join("\n") : "None"}
 

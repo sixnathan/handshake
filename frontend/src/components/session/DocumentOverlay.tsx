@@ -1,20 +1,15 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  useDocumentStore,
-  type LegalDocument,
-  type Milestone,
-} from "@/stores/document-store";
+import { useDocumentStore, type LegalDocument } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useVerificationStore } from "@/stores/verification-store";
-import { markdownToHtml, cn } from "@/lib/utils";
+import { ContractView } from "@/components/contracts/ContractView";
 
 interface DocumentOverlayProps {
   panelWs: React.RefObject<WebSocket | null>;
@@ -39,6 +34,13 @@ export function DocumentOverlay({
   const openVerification = useVerificationStore((s) => s.openModal);
 
   const doc = externalDoc ?? storeDoc;
+
+  // Reset optimistic signing state when document changes
+  const docId = doc?.id;
+  useEffect(() => {
+    signedRef.current = false;
+  }, [docId]);
+
   const isOpen = externalDoc ? true : overlayVisible;
   const handleOpenChange = externalDoc ? () => onClose?.() : hideOverlay;
 
@@ -51,9 +53,6 @@ export function DocumentOverlay({
 
   const alreadySigned =
     signedRef.current || doc.signatures.some((s) => s.userId === userId);
-  const sigCount = doc.signatures.length;
-  const totalParties = doc.parties.length;
-  const isFullySigned = doc.status === "fully_signed";
 
   function handleSign() {
     if (!panelWs.current || !doc || !userId) return;
@@ -79,131 +78,25 @@ export function DocumentOverlay({
     openVerification(doc!.id, milestoneId);
   }
 
-  const statusDot = (status: Milestone["status"]) => {
-    const map: Record<Milestone["status"], string> = {
-      pending: "bg-accent-orange",
-      verifying: "bg-accent-blue animate-pulse",
-      completed: "bg-accent-green",
-      failed: "bg-accent-red",
-      disputed: "bg-accent-purple",
-    };
-    return map[status] ?? "bg-accent-orange";
-  };
-
-  const statusText = (status: Milestone["status"]) => {
-    const map: Record<Milestone["status"], string> = {
-      pending: "text-accent-orange",
-      verifying: "text-accent-blue",
-      completed: "text-accent-green",
-      failed: "text-accent-red",
-      disputed: "text-accent-purple",
-    };
-    return map[status] ?? "text-accent-orange";
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-[700px] overflow-hidden border-separator bg-surface-secondary p-0">
+      <DialogContent className="max-h-[85vh] max-w-[700px] overflow-hidden border-separator bg-surface-secondary p-0">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="text-accent-blue">{doc.title}</DialogTitle>
+          <DialogTitle className="text-text-primary">
+            Contract Details
+          </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[calc(80vh-120px)] px-6 pb-6">
-          {/* Document content */}
-          <div
-            className="prose prose-sm max-w-none text-text-primary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary [&_strong]:text-text-primary [&_ul]:ml-5 [&_ol]:ml-5"
-            dangerouslySetInnerHTML={{ __html: markdownToHtml(doc.content) }}
+        <ScrollArea className="max-h-[calc(85vh-80px)] px-6 pb-6">
+          <ContractView
+            doc={doc}
+            milestones={milestones}
+            readOnly={readOnly}
+            onSign={handleSign}
+            onCompleteMilestone={handleCompleteMilestone}
+            onVerifyMilestone={handleVerifyMilestone}
+            alreadySigned={alreadySigned}
           />
-
-          {/* Signature status */}
-          <p
-            className={cn(
-              "mt-4 text-sm",
-              isFullySigned ? "text-accent-green" : "text-accent-orange",
-            )}
-          >
-            Signatures: {sigCount}/{totalParties}
-            {isFullySigned && " \u2014 Agreement Complete!"}
-          </p>
-
-          {/* Sign button (hidden in read-only mode) */}
-          {!readOnly && (
-            <Button
-              className="mt-3 bg-accent-green text-white hover:bg-accent-green/90"
-              disabled={alreadySigned || isFullySigned}
-              onClick={handleSign}
-            >
-              {alreadySigned ? "Signed \u2713" : "Sign Agreement"}
-            </Button>
-          )}
-
-          {/* Milestones */}
-          {milestones.size > 0 && (
-            <div className="mt-6 border-t border-separator pt-4">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                Milestones
-              </h3>
-              {[...milestones.values()].map((ms) => (
-                <div
-                  key={ms.id}
-                  className="mb-2 flex items-center gap-3 rounded-lg border border-separator bg-surface-tertiary p-3"
-                >
-                  <div
-                    className={cn(
-                      "size-2.5 shrink-0 rounded-full",
-                      statusDot(ms.status),
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-text-primary">
-                      {ms.description}
-                    </p>
-                    <p className="text-xs text-text-tertiary">{ms.condition}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      statusText(ms.status),
-                    )}
-                  >
-                    {"\u00A3"}
-                    {(ms.amount / 100).toFixed(2)}
-                  </span>
-                  {ms.status === "pending" && !readOnly && (
-                    <Button
-                      size="sm"
-                      className="bg-accent-green text-white hover:bg-accent-green/90"
-                      onClick={() => handleCompleteMilestone(ms.id)}
-                    >
-                      Complete
-                    </Button>
-                  )}
-                  {ms.status === "pending" && readOnly && (
-                    <Button
-                      size="sm"
-                      className="bg-accent-blue text-white hover:bg-accent-blue/90"
-                      onClick={() => handleVerifyMilestone(ms.id)}
-                    >
-                      Verify
-                    </Button>
-                  )}
-                  {ms.status !== "pending" && (
-                    <span
-                      className={cn(
-                        "text-xs font-medium",
-                        statusText(ms.status),
-                      )}
-                    >
-                      {ms.status === "completed" && "\u2713 Done"}
-                      {ms.status === "verifying" && "Verifying..."}
-                      {ms.status === "failed" && "\u2717 Failed"}
-                      {ms.status === "disputed" && "Disputed"}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </ScrollArea>
       </DialogContent>
     </Dialog>
