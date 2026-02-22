@@ -20,10 +20,6 @@ import { saveContract } from "@/hooks/use-profile";
 // ── Timeline filter: only important events ────
 
 function shouldIncludeAgentMessage(text: string): boolean {
-  // Always show smart detection triggers
-  if (/\[Smart Detection\].*TRIGGERED/i.test(text)) return true;
-  // Hide routine smart detection polling (noise)
-  if (/\[Smart Detection\]/i.test(text)) return false;
   // Show key tool results, hide noisy ones
   if (/^\[Tool:/i.test(text)) {
     if (
@@ -34,7 +30,7 @@ function shouldIncludeAgentMessage(text: string): boolean {
       return true;
     return false;
   }
-  // Show all free-text agent messages (reasoning, analysis, etc.)
+  // Show all free-text agent messages (reasoning, analysis, waiting, etc.)
   return true;
 }
 
@@ -80,6 +76,13 @@ export function usePanelWebSocket() {
       } catch {
         /* malformed */
       }
+    });
+
+    ws.addEventListener("close", () => {
+      useTranscriptStore.getState().reset();
+      useTimelineStore.getState().reset();
+      useDocumentStore.getState().reset();
+      useVerificationStore.getState().reset();
     });
 
     return () => {
@@ -167,12 +170,8 @@ function handleAgent(msg: Record<string, unknown>): void {
 
   if (!shouldIncludeAgentMessage(text)) return;
 
-  let type: TimelineNodeType = "message";
+  const type: TimelineNodeType = "message";
   let displayText = text;
-
-  if (/\[Smart Detection\].*TRIGGERED/i.test(text)) {
-    type = "detect";
-  }
 
   if (displayText.length > 100) displayText = displayText.slice(0, 97) + "...";
 

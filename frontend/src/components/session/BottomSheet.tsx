@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useDocumentStore } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
 import { cn, currencySymbol } from "@/lib/utils";
-import { PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
+import { LineItemRow } from "@/components/contracts/LineItemRow";
 import { CheckCircle2, Circle, Shield } from "lucide-react";
 
 interface BottomSheetProps {
@@ -86,45 +86,17 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
 
         {/* Line items compact list */}
         <div className="mb-3 space-y-1">
-          {doc.terms.lineItems.map((li, i) => {
-            const typeConfig =
-              PAYMENT_TYPE_CONFIG[
-                li.type as keyof typeof PAYMENT_TYPE_CONFIG
-              ] ?? PAYMENT_TYPE_CONFIG.immediate;
-            const hasRange =
-              li.minAmount !== undefined && li.maxAmount !== undefined;
-            return (
-              <div
-                key={i}
-                className="flex items-center justify-between text-xs"
-              >
-                <span className="text-text-secondary">{li.description}</span>
-                <span className="flex items-center gap-1.5 font-medium text-text-primary">
-                  {hasRange ? (
-                    <>
-                      {currency}
-                      {(li.minAmount! / 100).toFixed(2)}&ndash;{currency}
-                      {(li.maxAmount! / 100).toFixed(2)}
-                    </>
-                  ) : (
-                    <>
-                      {currency}
-                      {(li.amount / 100).toFixed(2)}
-                    </>
-                  )}
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                      typeConfig.bg,
-                      typeConfig.color,
-                    )}
-                  >
-                    {typeConfig.label}
-                  </span>
-                </span>
-              </div>
-            );
-          })}
+          {doc.terms.lineItems.map((li, i) => (
+            <LineItemRow
+              key={i}
+              description={li.description}
+              amount={li.amount}
+              type={li.type}
+              currency={currency}
+              minAmount={li.minAmount}
+              maxAmount={li.maxAmount}
+            />
+          ))}
         </div>
 
         {/* Status row */}

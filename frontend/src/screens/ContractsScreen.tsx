@@ -9,7 +9,8 @@ import { useVerificationStore } from "@/stores/verification-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
 import type { LegalDocument, Milestone } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
-import { MILESTONE_STATUS, PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
+import { MILESTONE_STATUS } from "@/lib/milestone-config";
+import { LineItemRow } from "@/components/contracts/LineItemRow";
 import {
   ArrowLeft,
   FileText,
@@ -196,45 +197,17 @@ function ContractCard({
       {/* Line items summary */}
       {contract.terms.lineItems.length > 0 && (
         <div className="mt-3 space-y-1">
-          {contract.terms.lineItems.map((li, i) => {
-            const typeConfig =
-              PAYMENT_TYPE_CONFIG[
-                li.type as keyof typeof PAYMENT_TYPE_CONFIG
-              ] ?? PAYMENT_TYPE_CONFIG.immediate;
-            const hasRange =
-              li.minAmount !== undefined && li.maxAmount !== undefined;
-            return (
-              <div
-                key={i}
-                className="flex items-center justify-between text-xs"
-              >
-                <span className="text-text-secondary">{li.description}</span>
-                <span className="flex items-center gap-1.5 font-medium text-text-primary">
-                  {hasRange ? (
-                    <>
-                      {currency}
-                      {(li.minAmount! / 100).toFixed(2)}&ndash;{currency}
-                      {(li.maxAmount! / 100).toFixed(2)}
-                    </>
-                  ) : (
-                    <>
-                      {currency}
-                      {(li.amount / 100).toFixed(2)}
-                    </>
-                  )}
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-                      typeConfig.bg,
-                      typeConfig.color,
-                    )}
-                  >
-                    {typeConfig.label}
-                  </span>
-                </span>
-              </div>
-            );
-          })}
+          {contract.terms.lineItems.map((li, i) => (
+            <LineItemRow
+              key={i}
+              description={li.description}
+              amount={li.amount}
+              type={li.type}
+              currency={currency}
+              minAmount={li.minAmount}
+              maxAmount={li.maxAmount}
+            />
+          ))}
         </div>
       )}
 
