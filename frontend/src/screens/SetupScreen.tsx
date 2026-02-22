@@ -105,9 +105,11 @@ export function SetupScreen() {
       </Button>
 
       {/* Header */}
-      <h1 className="mb-1 text-3xl font-bold text-accent-blue">Handshake</h1>
-      <p className="mb-7 text-sm text-text-secondary">
-        Voice-powered agreements
+      <h1 className="mb-1 bg-gradient-to-r from-accent-blue to-accent-green bg-clip-text text-4xl font-extrabold text-transparent">
+        Handshake
+      </h1>
+      <p className="mb-8 text-sm text-text-secondary">
+        Speak it. Agree it. Pay it.
       </p>
 
       {/* Join form */}
