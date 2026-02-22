@@ -1,4 +1,4 @@
-import { Circle, Clock, CheckCircle2, AlertCircle } from "lucide-react";
+import { Circle, Clock, CheckCircle2, AlertCircle, Undo2 } from "lucide-react";
 
 export const MILESTONE_STATUS = {
   pending: {
@@ -7,17 +7,41 @@ export const MILESTONE_STATUS = {
     color: "text-accent-orange",
     bg: "bg-accent-orange/10",
   },
-  verifying: {
-    label: "Verifying",
+  provider_confirmed: {
+    label: "Provider Confirmed",
     icon: Clock,
     color: "text-accent-blue",
     bg: "bg-accent-blue/10",
+  },
+  client_confirmed: {
+    label: "Client Confirmed",
+    icon: Clock,
+    color: "text-accent-blue",
+    bg: "bg-accent-blue/10",
+  },
+  pending_amount: {
+    label: "Awaiting Amount",
+    icon: Clock,
+    color: "text-accent-orange",
+    bg: "bg-accent-orange/10",
   },
   completed: {
     label: "Completed",
     icon: CheckCircle2,
     color: "text-accent-green",
     bg: "bg-accent-green/10",
+  },
+  released: {
+    label: "Released",
+    icon: Undo2,
+    color: "text-text-tertiary",
+    bg: "bg-gray-500/10",
+  },
+  verifying: {
+    label: "Verifying",
+    icon: Clock,
+    color: "text-accent-blue",
+    bg: "bg-accent-blue/10",
   },
   failed: {
     label: "Failed",

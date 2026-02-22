@@ -2,9 +2,9 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { JoinForm } from "@/components/setup/JoinForm";
 import {
-  SettingsSheet,
+  SettingsPanel,
   type SettingsValues,
-} from "@/components/setup/SettingsSheet";
+} from "@/components/setup/SettingsPanel";
 import {
   loadProfile,
   loadContracts,
@@ -12,6 +12,8 @@ import {
 } from "@/hooks/use-profile";
 import { useSessionStore } from "@/stores/session-store";
 import { Settings, FileText } from "lucide-react";
+
+const MAX_DOCS = 5;
 
 export function SetupScreen() {
   const showContracts = useSessionStore((s) => s.showContracts);
@@ -46,12 +48,26 @@ export function SetupScreen() {
     };
   });
 
+  const [contextDocuments, setContextDocuments] = useState<string[]>(
+    () => loadProfile().contextDocuments ?? [],
+  );
+
   const handleSettingChange = useCallback(
     (field: keyof SettingsValues, value: string) => {
       setSettings((prev) => ({ ...prev, [field]: value }));
     },
     [],
   );
+
+  const handleAddDocument = useCallback((text: string) => {
+    setContextDocuments((prev) =>
+      prev.length < MAX_DOCS ? [...prev, text] : prev,
+    );
+  }, []);
+
+  const handleRemoveDocument = useCallback((index: number) => {
+    setContextDocuments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const buildProfile = useCallback((): ProfileData => {
     const trade = settings.trade.trim() || undefined;
@@ -94,8 +110,10 @@ export function SetupScreen() {
       certifications,
       typicalRateRange,
       serviceArea,
+      contextDocuments:
+        contextDocuments.length > 0 ? contextDocuments : undefined,
     };
-  }, [settings]);
+  }, [settings, contextDocuments]);
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center px-6">
@@ -136,11 +154,14 @@ export function SetupScreen() {
       </Button>
 
       {/* Settings */}
-      <SettingsSheet
+      <SettingsPanel
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         values={settings}
         onChange={handleSettingChange}
+        contextDocuments={contextDocuments}
+        onAddDocument={handleAddDocument}
+        onRemoveDocument={handleRemoveDocument}
       />
     </div>
   );

@@ -651,10 +651,10 @@ describe("Tools Module", () => {
         deps.roomId,
         expect.objectContaining({
           panel: "agent",
-          text: expect.stringContaining("ready for verification"),
+          text: expect.stringContaining("ready for completion"),
         }),
       );
-      expect(result).toContain("pending verification");
+      expect(result).toContain("pending bilateral confirmation");
     });
   });
 
@@ -713,6 +713,56 @@ describe("Tools Module", () => {
         expect.any(String),
       );
       expect(result).toContain("Document generated");
+    });
+  });
+
+  describe("Stripe account validation", () => {
+    it("should reject execute_payment when recipientAccountId is empty", async () => {
+      deps = makeDeps({ recipientAccountId: "" });
+      tools = buildTools(deps);
+      const tool = tools.find((t) => t.name === "execute_payment")!;
+      const result = await tool.handler({
+        amount: 15000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Recipient has no Stripe account connected");
+      expect(deps.payment.executePayment).not.toHaveBeenCalled();
+    });
+
+    it("should reject create_escrow_hold when recipientAccountId is empty", async () => {
+      deps = makeDeps({ recipientAccountId: "" });
+      tools = buildTools(deps);
+      const tool = tools.find((t) => t.name === "create_escrow_hold")!;
+      const result = await tool.handler({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Recipient has no Stripe account connected");
+      expect(deps.payment.createEscrowHold).not.toHaveBeenCalled();
+    });
+
+    it("should allow execute_payment when recipientAccountId is set", async () => {
+      const tool = tools.find((t) => t.name === "execute_payment")!;
+      const result = await tool.handler({
+        amount: 15000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Payment successful");
+      expect(deps.payment.executePayment).toHaveBeenCalled();
+    });
+
+    it("should allow create_escrow_hold when recipientAccountId is set", async () => {
+      const tool = tools.find((t) => t.name === "create_escrow_hold")!;
+      const result = await tool.handler({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+      });
+      expect(result).toContain("Escrow hold created");
+      expect(deps.payment.createEscrowHold).toHaveBeenCalled();
     });
   });
 

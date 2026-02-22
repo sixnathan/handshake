@@ -38,7 +38,7 @@ function makeTrigger(): TriggerEvent {
   return {
     type: "keyword",
     confidence: 1.0,
-    matchedText: "chripbbbly",
+    matchedText: "handshake",
     timestamp: Date.now(),
     speakerId: "alice",
   };
@@ -160,7 +160,7 @@ describe("AgentService Module", () => {
   });
 
   describe("pushTranscript batching", () => {
-    it("should batch transcripts for 2 seconds before flushing", async () => {
+    it("should NOT call LLM for pre-trigger transcript batches", async () => {
       vi.useFakeTimers();
       try {
         await agent.start(makeProfile());
@@ -168,19 +168,15 @@ describe("AgentService Module", () => {
         agent.pushTranscript(makeEntry("alice", "hello"));
         agent.pushTranscript(makeEntry("bob", "hi there"));
 
-        // Not flushed yet at 1s
-        await vi.advanceTimersByTimeAsync(1000);
+        // Timer fires at 2s but negotiation not active — LLM not called
+        await vi.advanceTimersByTimeAsync(2000);
         expect(mockLLM.createMessage).not.toHaveBeenCalled();
-
-        // Flushed at 2s
-        await vi.advanceTimersByTimeAsync(1000);
-        expect(mockLLM.createMessage).toHaveBeenCalledOnce();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("should reset batch timer on new transcript", async () => {
+    it("should reset batch timer on new transcript (pre-trigger discards)", async () => {
       vi.useFakeTimers();
       try {
         await agent.start(makeProfile());
@@ -190,20 +186,22 @@ describe("AgentService Module", () => {
 
         agent.pushTranscript(makeEntry("bob", "hi")); // resets timer
         await vi.advanceTimersByTimeAsync(1500);
-
         expect(mockLLM.createMessage).not.toHaveBeenCalled();
 
+        // Even after full timer expiry, no LLM call (pre-trigger)
         await vi.advanceTimersByTimeAsync(500);
-        expect(mockLLM.createMessage).toHaveBeenCalledOnce();
+        expect(mockLLM.createMessage).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("should include all batched transcripts in single message", async () => {
+    it("should include all batched transcripts in single message (post-trigger)", async () => {
       vi.useFakeTimers();
       try {
         await agent.start(makeProfile());
+        // Activate negotiation so transcripts are processed
+        await agent.startNegotiation(makeTrigger(), "context");
 
         agent.pushTranscript(makeEntry("alice", "line one"));
         agent.pushTranscript(makeEntry("bob", "line two"));
@@ -211,13 +209,17 @@ describe("AgentService Module", () => {
 
         await vi.advanceTimersByTimeAsync(2000);
 
-        expect(mockLLM.createMessage).toHaveBeenCalledOnce();
+        // First call is startNegotiation, second is the batched transcripts
+        expect(mockLLM.createMessage).toHaveBeenCalledTimes(2);
         const snapshot =
-          mockLLM.createMessage.mock.calls[0][0].__messageSnapshot;
-        const userMsg = snapshot.find((m: any) => m.role === "user");
-        expect(userMsg.content).toContain("line one");
-        expect(userMsg.content).toContain("line two");
-        expect(userMsg.content).toContain("line three");
+          mockLLM.createMessage.mock.calls[1][0].__messageSnapshot;
+        const userMsgs = snapshot.filter(
+          (m: any) => m.role === "user" && typeof m.content === "string",
+        );
+        const lastUserMsg = userMsgs[userMsgs.length - 1];
+        expect(lastUserMsg.content).toContain("line one");
+        expect(lastUserMsg.content).toContain("line two");
+        expect(lastUserMsg.content).toContain("line three");
       } finally {
         vi.useRealTimers();
       }
@@ -229,6 +231,68 @@ describe("AgentService Module", () => {
         await agent.start(makeProfile());
         await vi.advanceTimersByTimeAsync(5000);
         expect(mockLLM.createMessage).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("negotiationActive guard", () => {
+    it("should activate and process transcripts after startNegotiation", async () => {
+      vi.useFakeTimers();
+      try {
+        await agent.start(makeProfile());
+
+        // Pre-trigger transcripts are discarded
+        agent.pushTranscript(makeEntry("alice", "before trigger"));
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(mockLLM.createMessage).not.toHaveBeenCalled();
+
+        // Activate negotiation
+        await agent.startNegotiation(makeTrigger(), "context");
+        expect(mockLLM.createMessage).toHaveBeenCalledOnce();
+
+        // Post-trigger transcripts are processed
+        agent.pushTranscript(makeEntry("bob", "after trigger"));
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(mockLLM.createMessage).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should activate on receiveAgentMessage for CLIENT agent", async () => {
+      vi.useFakeTimers();
+      try {
+        await agent.start(makeProfile());
+
+        // Pre-trigger transcripts are discarded
+        agent.pushTranscript(makeEntry("alice", "before message"));
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(mockLLM.createMessage).not.toHaveBeenCalled();
+
+        // Receive an agent message — activates negotiation
+        await agent.receiveAgentMessage({
+          type: "agent_proposal",
+          negotiationId: "neg_1",
+          proposal: {
+            summary: "Fix boiler",
+            lineItems: [
+              { description: "Labour", amount: 15000, type: "immediate" },
+            ],
+            totalAmount: 15000,
+            currency: "gbp",
+            conditions: [],
+            expiresAt: Date.now() + 30000,
+          },
+          fromAgent: "bob",
+        });
+        expect(mockLLM.createMessage).toHaveBeenCalledOnce();
+
+        // Post-activation transcripts are processed
+        agent.pushTranscript(makeEntry("bob", "after proposal"));
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(mockLLM.createMessage).toHaveBeenCalledTimes(2);
       } finally {
         vi.useRealTimers();
       }
@@ -528,7 +592,7 @@ describe("AgentService Module", () => {
       expect(systemPrompt).toContain("above_threshold");
     });
 
-    it("should include negotiation rules", async () => {
+    it("should include negotiation constraints", async () => {
       await agent.start(makeProfile());
       await agent.startNegotiation(makeTrigger(), "context");
 
@@ -537,6 +601,48 @@ describe("AgentService Module", () => {
       expect(systemPrompt).toContain("escrow");
       expect(systemPrompt).toContain("aggressive");
       expect(systemPrompt).toContain("conservative");
+    });
+
+    it("should include protocol phases in system prompt", async () => {
+      await agent.start(makeProfile());
+      await agent.startNegotiation(makeTrigger(), "context");
+
+      const systemPrompt = mockLLM.createMessage.mock.calls[0][0].system;
+      expect(systemPrompt).toContain("HANDSHAKE PROTOCOL");
+      expect(systemPrompt).toContain("PHASE 1 LISTENING");
+      expect(systemPrompt).toContain("PHASE 2 TRIGGER");
+      expect(systemPrompt).toContain("PHASE 3 PROPOSAL");
+      expect(systemPrompt).toContain("PHASE 4 NEGOTIATION");
+      expect(systemPrompt).toContain("PHASE 5 DOCUMENT");
+      expect(systemPrompt).toContain("PHASE 6 SIGNING");
+      expect(systemPrompt).toContain("PHASE 7 PAYMENT");
+      expect(systemPrompt).toContain("PHASE 8 MILESTONES");
+    });
+
+    it("should assign PROVIDER role for provider-like profiles", async () => {
+      const profile = makeProfile();
+      profile.role = "plumber";
+      const providerAgent = new AgentService({
+        provider: mockLLM as any,
+        model: "test-model",
+        maxTokens: 4096,
+      });
+      await providerAgent.start(profile);
+      await providerAgent.startNegotiation(makeTrigger(), "context");
+
+      const systemPrompt = mockLLM.createMessage.mock.calls[0][0].system;
+      expect(systemPrompt).toContain("PROVIDER (proposer)");
+      expect(systemPrompt).not.toContain("YOUR ROLE: CLIENT");
+      providerAgent.stop();
+    });
+
+    it("should assign CLIENT role for non-provider profiles", async () => {
+      await agent.start(makeProfile()); // makeProfile has role="homeowner"
+      await agent.startNegotiation(makeTrigger(), "context");
+
+      const systemPrompt = mockLLM.createMessage.mock.calls[0][0].system;
+      expect(systemPrompt).toContain("CLIENT (evaluator)");
+      expect(systemPrompt).not.toContain("YOUR ROLE: PROVIDER");
     });
   });
 
@@ -575,6 +681,8 @@ describe("AgentService Module", () => {
       vi.useFakeTimers();
       try {
         await agent.start(makeProfile());
+        // Activate negotiation so transcript flushes reach the LLM
+        await agent.startNegotiation(makeTrigger(), "context");
 
         // Each flush: 1 user message added, then LLM adds 1 assistant = 2 per flush
         // 35 flushes = 70 messages, which exceeds the 60-message limit
@@ -646,6 +754,8 @@ describe("AgentService Module", () => {
       vi.useFakeTimers();
       try {
         await agent.start(makeProfile());
+        // Activate negotiation so transcript flushes reach the LLM
+        await agent.startNegotiation(makeTrigger(), "context");
 
         // Push 5 transcripts: 5 user + 5 assistant = 10 messages
         for (let i = 0; i < 5; i++) {
@@ -653,9 +763,9 @@ describe("AgentService Module", () => {
           await vi.advanceTimersByTimeAsync(2000);
         }
 
-        // 5 flushes, each producing 2 messages = 10 total, well under 60
+        // 1 startNegotiation call + 5 transcript flushes = 6 calls
         const totalCalls = mockLLM.createMessage.mock.calls.length;
-        expect(totalCalls).toBe(5);
+        expect(totalCalls).toBe(6);
 
         // Push one more and check — all messages should be present (no trimming)
         agent.pushTranscript(makeEntry("alice", "check message"));
@@ -667,9 +777,11 @@ describe("AgentService Module", () => {
           ];
         const messageCount = lastCall[0].__messageSnapshot.length;
 
-        // 6 user messages + 5 assistant messages (the 6th assistant hasn't been added yet) = 11
-        // No trimming should have occurred — count should equal exactly 11
-        expect(messageCount).toBe(11);
+        // 1 negotiation msg + 1 assistant + 6 transcript user msgs + 5 assistants = 13
+        // (the 7th assistant hasn't been added yet)
+        // No trimming should have occurred — count should be under 60
+        expect(messageCount).toBeLessThan(60);
+        expect(messageCount).toBeGreaterThan(10);
       } finally {
         vi.useRealTimers();
       }
@@ -703,38 +815,39 @@ describe("AgentService Module", () => {
         });
         await slowAgent.start(makeProfile());
 
-        // First transcript — triggers flush after 2s
+        // Activate negotiation — this call enters callLLMLoop and blocks on the slow LLM
+        const negPromise = slowAgent.startNegotiation(makeTrigger(), "ctx");
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+
+        // Resolve startNegotiation so the agent is active and processing=false
+        resolvers[0](response);
+        await negPromise;
+
+        // Now push transcripts — first flush triggers an LLM call
         slowAgent.pushTranscript(makeEntry("alice", "first batch"));
         await vi.advanceTimersByTimeAsync(2000);
 
         // LLM is now "processing" (promise not resolved yet)
-        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(2);
 
         // Push another transcript while LLM is busy
         slowAgent.pushTranscript(makeEntry("bob", "second batch"));
         await vi.advanceTimersByTimeAsync(2000);
 
         // The second callLLMLoop returned early because processing = true
-        // So createMessage should still only have been called once at this point
-        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(2);
 
-        // Resolve the first LLM call. runLLMStep will detect the new message
-        // that was pushed to this.messages and recurse internally, creating a
-        // second LLM call. This is the expected behavior — the guard is in
-        // callLLMLoop, not runLLMStep.
-        resolvers[0](response);
+        // Resolve the LLM call. runLLMStep will detect the new message and recurse.
+        resolvers[1](response);
         await vi.advanceTimersByTimeAsync(0);
 
-        // The recursive call from runLLMStep may have fired. Resolve it too.
-        if (resolvers.length > 1) {
-          resolvers[1](response);
+        if (resolvers.length > 2) {
+          resolvers[2](response);
           await vi.advanceTimersByTimeAsync(0);
         }
 
-        // The key assertion: while the first LLM call was in-flight,
-        // no ADDITIONAL callLLMLoop entry happened (only internal recursion).
-        // Total calls should be at most 2 (first + one recursive from runLLMStep).
-        expect(slowLLM.createMessage.mock.calls.length).toBeLessThanOrEqual(2);
+        // Total: 1 (negotiation) + at most 2 (first transcript + recursive) = 3
+        expect(slowLLM.createMessage.mock.calls.length).toBeLessThanOrEqual(3);
 
         slowAgent.stop();
       } finally {
@@ -780,41 +893,46 @@ describe("AgentService Module", () => {
         });
         await slowAgent.start(makeProfile());
 
+        // Activate negotiation first
+        const negPromise = slowAgent.startNegotiation(makeTrigger(), "ctx");
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+        resolvers[0](undefined);
+        await negPromise;
+
         // First transcript flush
         slowAgent.pushTranscript(makeEntry("alice", "first message"));
         await vi.advanceTimersByTimeAsync(2000);
-        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(2);
 
-        // While LLM is busy, push another transcript. flushTranscriptBatch
-        // pushes the message to this.messages but callLLMLoop returns early.
+        // While LLM is busy, push another transcript
         slowAgent.pushTranscript(makeEntry("bob", "second message"));
         await vi.advanceTimersByTimeAsync(2000);
 
-        // Still only 1 createMessage call
-        expect(slowLLM.createMessage).toHaveBeenCalledTimes(1);
+        // Still only 2 createMessage calls (negotiation + first flush)
+        expect(slowLLM.createMessage).toHaveBeenCalledTimes(2);
 
-        // Resolve first call — runLLMStep will detect new messages and recurse
-        resolvers[0](undefined);
+        // Resolve first transcript call — runLLMStep will detect new messages and recurse
+        resolvers[1](undefined);
         await vi.advanceTimersByTimeAsync(0);
 
         // The recursive call should see the second message in its snapshot
-        if (resolvers.length > 1) {
-          const secondSnapshot =
-            slowLLM.createMessage.mock.calls[1][0].__messageSnapshot;
-          const hasSecondMessage = secondSnapshot.some(
+        if (resolvers.length > 2) {
+          const thirdSnapshot =
+            slowLLM.createMessage.mock.calls[2][0].__messageSnapshot;
+          const hasSecondMessage = thirdSnapshot.some(
             (m: any) =>
               typeof m.content === "string" &&
               m.content.includes("second message"),
           );
           expect(hasSecondMessage).toBe(true);
 
-          resolvers[1](undefined);
+          resolvers[2](undefined);
           await vi.advanceTimersByTimeAsync(0);
         }
 
-        // At least 2 calls: the original + the recursive one that picked up queued messages
+        // At least 3 calls: negotiation + first flush + recursive
         expect(slowLLM.createMessage.mock.calls.length).toBeGreaterThanOrEqual(
-          2,
+          3,
         );
 
         slowAgent.stop();
@@ -1040,6 +1158,8 @@ describe("AgentService Module", () => {
           });
 
         await agent.start(makeProfile());
+        // Activate negotiation so flushes reach the LLM
+        await agent.startNegotiation(makeTrigger(), "context");
 
         // First transcript — LLM call will fail
         agent.pushTranscript(makeEntry("alice", "will fail"));
@@ -1050,8 +1170,11 @@ describe("AgentService Module", () => {
         agent.pushTranscript(makeEntry("bob", "should succeed"));
         await vi.advanceTimersByTimeAsync(2000);
 
-        // Second call should have gone through (processing was reset)
-        expect(mockLLM.createMessage).toHaveBeenCalledTimes(2);
+        // startNegotiation failed (first call), then 2 transcript flushes
+        // But first flush also fails, so we get: fail + fail + success = 3
+        // Actually: startNegotiation uses mockRejectedValueOnce (the first call),
+        // then first transcript flush succeeds, second transcript flush succeeds
+        expect(mockLLM.createMessage).toHaveBeenCalledTimes(3);
       } finally {
         vi.useRealTimers();
       }

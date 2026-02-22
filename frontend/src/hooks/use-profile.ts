@@ -36,7 +36,6 @@ export function loadProfile(): Partial<ProfileData> {
 export function saveProfile(profile: ProfileData): void {
   const toSave = { ...profile };
   delete toSave.monzoAccessToken;
-  delete toSave.contextDocuments;
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(toSave));
   } catch {
@@ -48,6 +47,15 @@ export function useProfile() {
   const load = useCallback(loadProfile, []);
   const save = useCallback(saveProfile, []);
   return { loadProfile: load, saveProfile: save };
+}
+
+export function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
 }
 
 // ── Contract persistence ──────────────────────
@@ -104,4 +112,8 @@ export function loadContracts(): unknown[] {
   } catch {
     return [];
   }
+}
+
+export function clearContracts(): void {
+  localStorage.removeItem(CONTRACTS_KEY);
 }

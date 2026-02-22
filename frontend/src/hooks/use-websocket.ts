@@ -244,11 +244,18 @@ function handleMilestoneMsg(msg: Record<string, unknown>): void {
   const ms = msg.milestone as Milestone;
   useDocumentStore.getState().updateMilestone(ms);
 
-  const isComplete = ms.status === "completed";
-  const type: TimelineNodeType = isComplete ? "pay" : "message";
-  const text = isComplete
-    ? `Milestone complete: ${ms.description}`
-    : `Milestone: ${ms.description} (pending)`;
+  const statusText: Record<string, string> = {
+    completed: `Milestone complete: ${ms.description}`,
+    released: `Escrow released: ${ms.description}`,
+    provider_confirmed: `Provider confirmed: ${ms.description}`,
+    client_confirmed: `Client confirmed: ${ms.description}`,
+    pending_amount: `Awaiting amount: ${ms.description}`,
+  };
+
+  const text =
+    statusText[ms.status] ?? `Milestone: ${ms.description} (${ms.status})`;
+  const type: TimelineNodeType =
+    ms.status === "completed" || ms.status === "released" ? "pay" : "message";
 
   useTimelineStore.getState().addNode({
     type,

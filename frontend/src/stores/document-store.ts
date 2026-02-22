@@ -18,7 +18,16 @@ export interface Milestone {
   description: string;
   amount: number;
   condition: string;
-  status: "pending" | "verifying" | "completed" | "failed" | "disputed";
+  status:
+    | "pending"
+    | "provider_confirmed"
+    | "client_confirmed"
+    | "pending_amount"
+    | "completed"
+    | "released"
+    | "verifying"
+    | "failed"
+    | "disputed";
   deliverables?: string[];
   verificationMethod?: string;
   completionCriteria?: string[];
@@ -33,6 +42,12 @@ export interface Milestone {
     verifiedAmount?: number;
   };
   escrowHoldId?: string;
+  providerConfirmed?: boolean;
+  clientConfirmed?: boolean;
+  proposedAmount?: number;
+  proposedBy?: string;
+  minAmount?: number;
+  maxAmount?: number;
 }
 
 export interface LegalDocument {
@@ -47,6 +62,7 @@ export interface LegalDocument {
       description: string;
       amount: number;
       type: string;
+      condition?: string;
       minAmount?: number;
       maxAmount?: number;
       factors?: { name: string; description: string; impact: string }[];
@@ -59,6 +75,8 @@ export interface LegalDocument {
   signatures: DocumentSignature[];
   status: "draft" | "pending_signatures" | "fully_signed";
   milestones?: Milestone[];
+  providerId?: string;
+  clientId?: string;
   createdAt: number;
 }
 

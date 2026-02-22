@@ -256,7 +256,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       model: "test-model",
     },
     trigger: {
-      keyword: "chripbbbly",
+      keyword: "handshake",
       smartDetectionEnabled: false,
     },
     monzo: {},
@@ -1339,7 +1339,113 @@ describe("RoomManager", () => {
     });
   });
 
-  describe("handleUserTrigger double-trigger guard", () => {
+  describe("dual-keyword coordination", () => {
+    function getTriggerHandler(slotIndex: number) {
+      const td = mockTriggerDetectorInstances[slotIndex];
+      const call = td.on.mock.calls.find((c: any[]) => c[0] === "triggered");
+      expect(call).toBeDefined();
+      return call![1];
+    }
+
+    function makeTriggerEvent(speakerId: string) {
+      return {
+        type: "keyword" as const,
+        confidence: 1.0,
+        matchedText: "handshake",
+        timestamp: Date.now(),
+        speakerId,
+      };
+    }
+
+    it("should set pending trigger when first user triggers", () => {
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.pendingTrigger).not.toBeNull();
+      expect(room.pendingTrigger.userId).toBe("alice");
+
+      // Should NOT start negotiation yet
+      expect(mockAgentInstances[0].startNegotiation).not.toHaveBeenCalled();
+      expect(mockAgentInstances[1].startNegotiation).not.toHaveBeenCalled();
+    });
+
+    it("should send 'waiting' message to first user", () => {
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      panelEmitter.sendToUser.mockClear();
+
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+
+      expect(panelEmitter.sendToUser).toHaveBeenCalledWith(
+        "alice",
+        expect.objectContaining({
+          panel: "agent",
+          text: expect.stringContaining("Waiting for other party"),
+        }),
+      );
+    });
+
+    it("should start negotiation when second different user triggers", () => {
+      rm.joinRoom(
+        "room-1",
+        "alice",
+        makeProfile({ displayName: "Alice", role: "homeowner" }),
+      );
+      rm.joinRoom(
+        "room-1",
+        "bob",
+        makeProfile({ displayName: "Bob", role: "plumber" }),
+      );
+
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
+
+      // Provider (bob=plumber) should be the initiator
+      expect(mockAgentInstances[1].startNegotiation).toHaveBeenCalled();
+    });
+
+    it("should ignore duplicate trigger from same user", () => {
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerAlice(makeTriggerEvent("alice"));
+
+      // Still pending, no negotiation started
+      expect(mockAgentInstances[0].startNegotiation).not.toHaveBeenCalled();
+      expect(mockAgentInstances[1].startNegotiation).not.toHaveBeenCalled();
+    });
+
+    it("should clear pending trigger on timeout", () => {
+      vi.useFakeTimers();
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.pendingTrigger).not.toBeNull();
+
+      vi.advanceTimersByTime(10_000);
+
+      expect(room.pendingTrigger).toBeNull();
+      expect(room.pendingTriggerTimeout).toBeNull();
+      // Trigger detector should be reset so user can try again
+      expect(mockTriggerDetectorInstances[0].reset).toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
     it("should ignore trigger when negotiation is already active", () => {
       rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
       rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
@@ -1347,22 +1453,98 @@ describe("RoomManager", () => {
       const negInstance = mockNegotiationInstances[0];
       negInstance.getActiveNegotiation.mockReturnValue({ id: "neg_active" });
 
-      const triggerDetectorAlice = mockTriggerDetectorInstances[0];
-      const triggeredCall = triggerDetectorAlice.on.mock.calls.find(
-        (c: any[]) => c[0] === "triggered",
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.pendingTrigger).toBeNull();
+      expect(mockAgentInstances[0].startNegotiation).not.toHaveBeenCalled();
+    });
+
+    it("should select provider role as initiator (proposer)", () => {
+      rm.joinRoom(
+        "room-1",
+        "alice",
+        makeProfile({ displayName: "Alice", role: "homeowner" }),
       );
-      expect(triggeredCall).toBeDefined();
+      rm.joinRoom(
+        "room-1",
+        "bob",
+        makeProfile({ displayName: "Bob", role: "contractor" }),
+      );
 
-      const triggerHandler = triggeredCall![1];
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
 
-      triggerHandler({
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: "chripbbbly",
-        timestamp: Date.now(),
-        speakerId: "alice",
-      });
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
 
+      // bob (contractor=provider) should be the initiator
+      expect(mockAgentInstances[1].startNegotiation).toHaveBeenCalled();
+      expect(mockAgentInstances[0].startNegotiation).not.toHaveBeenCalled();
+    });
+
+    it("should fallback to first speaker when no provider role found", () => {
+      rm.joinRoom(
+        "room-1",
+        "alice",
+        makeProfile({ displayName: "Alice", role: "participant" }),
+      );
+      rm.joinRoom(
+        "room-1",
+        "bob",
+        makeProfile({ displayName: "Bob", role: "participant" }),
+      );
+
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      // Alice triggers first, then Bob
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
+
+      // The event.speakerId in handleTrigger will be "bob" (the second trigger),
+      // but since neither has provider role, fallback to event.speakerId
+      // The event is the bob trigger with type changed to dual_keyword
+      expect(
+        mockAgentInstances[0].startNegotiation.mock.calls.length +
+          mockAgentInstances[1].startNegotiation.mock.calls.length,
+      ).toBe(1);
+    });
+
+    it("should emit dual_keyword type in trigger event", () => {
+      rm.joinRoom(
+        "room-1",
+        "alice",
+        makeProfile({ displayName: "Alice", role: "homeowner" }),
+      );
+      rm.joinRoom(
+        "room-1",
+        "bob",
+        makeProfile({ displayName: "Bob", role: "plumber" }),
+      );
+
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
+
+      const call = mockAgentInstances[1].startNegotiation.mock.calls[0];
+      expect(call[0].type).toBe("dual_keyword");
+    });
+
+    it("should block triggers when triggerInProgress is set", () => {
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      const room = (rm as any).rooms.get("room-1");
+      room.triggerInProgress = true;
+
+      const triggerAlice = getTriggerHandler(0);
+      triggerAlice(makeTriggerEvent("alice"));
+
+      expect(room.pendingTrigger).toBeNull();
       expect(mockAgentInstances[0].startNegotiation).not.toHaveBeenCalled();
     });
   });
@@ -1414,59 +1596,65 @@ describe("RoomManager", () => {
     });
   });
 
-  // ── 11. Trigger race guard (triggerInProgress) ──
+  // ── 11. Trigger race guard (triggerInProgress) with dual-keyword ──
 
-  describe("trigger race guard", () => {
-    it("should block second trigger while first is in progress", () => {
-      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
-      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+  describe("trigger race guard with dual-keyword", () => {
+    function getTriggerHandler(slotIndex: number) {
+      const td = mockTriggerDetectorInstances[slotIndex];
+      const call = td.on.mock.calls.find((c: any[]) => c[0] === "triggered");
+      return call![1];
+    }
 
-      const negInstance = mockNegotiationInstances[0];
-      negInstance.getActiveNegotiation.mockReturnValue(undefined);
-
-      // Get trigger handlers for both users
-      const triggerAlice = mockTriggerDetectorInstances[0].on.mock.calls.find(
-        (c: any[]) => c[0] === "triggered",
-      )![1];
-      const triggerBob = mockTriggerDetectorInstances[1].on.mock.calls.find(
-        (c: any[]) => c[0] === "triggered",
-      )![1];
-
-      const triggerEvent = {
+    function makeTriggerEvent(speakerId: string) {
+      return {
         type: "keyword" as const,
         confidence: 1.0,
-        matchedText: "chripbbbly",
+        matchedText: "handshake",
         timestamp: Date.now(),
-        speakerId: "alice" as string,
+        speakerId,
       };
+    }
 
-      // First trigger should go through
-      triggerAlice(triggerEvent);
-      expect(mockAgentInstances[0].startNegotiation).toHaveBeenCalledTimes(1);
-
-      // Second trigger (from bob) should be blocked
-      triggerBob({ ...triggerEvent, speakerId: "bob" });
-      expect(mockAgentInstances[1].startNegotiation).not.toHaveBeenCalled();
-    });
-
-    it("should reset triggerInProgress on negotiation:rejected", () => {
+    it("should block new dual-keyword while triggerInProgress is set", () => {
       rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
       rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
 
       const negInstance = mockNegotiationInstances[0];
       negInstance.getActiveNegotiation.mockReturnValue(undefined);
 
-      // Trigger first
-      const triggerAlice = mockTriggerDetectorInstances[0].on.mock.calls.find(
-        (c: any[]) => c[0] === "triggered",
-      )![1];
-      triggerAlice({
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: "chripbbbly",
-        timestamp: Date.now(),
-        speakerId: "alice",
-      });
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      // Complete dual-keyword handshake
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
+
+      // triggerInProgress should now be true
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.triggerInProgress).toBe(true);
+
+      // Reset trigger detectors (they're already triggered internally)
+      mockTriggerDetectorInstances[0].reset();
+      mockTriggerDetectorInstances[1].reset();
+
+      // New trigger attempts should be blocked
+      triggerAlice(makeTriggerEvent("alice"));
+      expect(room.pendingTrigger).toBeNull();
+    });
+
+    it("should reset triggerInProgress on negotiation:rejected and allow new dual-keyword", () => {
+      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
+      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+
+      const negInstance = mockNegotiationInstances[0];
+      negInstance.getActiveNegotiation.mockReturnValue(undefined);
+
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      // Complete dual-keyword handshake
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
 
       // Reject the negotiation
       const rejectedHandler = negInstance.on.mock.calls.find(
@@ -1474,16 +1662,10 @@ describe("RoomManager", () => {
       )![1];
       rejectedHandler(makeNegotiationFixture({ status: "rejected" }));
 
-      // Now a new trigger should go through
-      mockAgentInstances[0].startNegotiation.mockClear();
-      triggerAlice({
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: "chripbbbly",
-        timestamp: Date.now(),
-        speakerId: "alice",
-      });
-      expect(mockAgentInstances[0].startNegotiation).toHaveBeenCalledTimes(1);
+      // triggerInProgress should be reset
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.triggerInProgress).toBe(false);
+      expect(room.pendingTrigger).toBeNull();
     });
 
     it("should reset triggerInProgress on negotiation:expired", () => {
@@ -1493,16 +1675,12 @@ describe("RoomManager", () => {
       const negInstance = mockNegotiationInstances[0];
       negInstance.getActiveNegotiation.mockReturnValue(undefined);
 
-      const triggerAlice = mockTriggerDetectorInstances[0].on.mock.calls.find(
-        (c: any[]) => c[0] === "triggered",
-      )![1];
-      triggerAlice({
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: "chripbbbly",
-        timestamp: Date.now(),
-        speakerId: "alice",
-      });
+      const triggerAlice = getTriggerHandler(0);
+      const triggerBob = getTriggerHandler(1);
+
+      // Complete dual-keyword handshake
+      triggerAlice(makeTriggerEvent("alice"));
+      triggerBob(makeTriggerEvent("bob"));
 
       // Expire the negotiation
       const expiredHandler = negInstance.on.mock.calls.find(
@@ -1510,16 +1688,9 @@ describe("RoomManager", () => {
       )![1];
       expiredHandler(makeNegotiationFixture({ status: "expired" }));
 
-      // New trigger should go through
-      mockAgentInstances[0].startNegotiation.mockClear();
-      triggerAlice({
-        type: "keyword",
-        confidence: 1.0,
-        matchedText: "chripbbbly",
-        timestamp: Date.now(),
-        speakerId: "alice",
-      });
-      expect(mockAgentInstances[0].startNegotiation).toHaveBeenCalledTimes(1);
+      const room = (rm as any).rooms.get("room-1");
+      expect(room.triggerInProgress).toBe(false);
+      expect(room.pendingTrigger).toBeNull();
     });
   });
 
@@ -1629,35 +1800,326 @@ describe("RoomManager", () => {
       expect(negInstance.destroy).toHaveBeenCalled();
     });
 
-    it("should reset triggerInProgress when user leaves and drops below 2", () => {
+    it("should reset triggerInProgress and pendingTrigger when user leaves and drops below 2", () => {
       rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
       rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
 
       const room = (rm as any).rooms.get("room-1");
       room.triggerInProgress = true;
+      room.pendingTrigger = { userId: "alice", timestamp: Date.now() };
 
       rm.leaveRoom("room-1", "alice");
 
       expect(room.triggerInProgress).toBe(false);
+      expect(room.pendingTrigger).toBeNull();
+      expect(room.pendingTriggerTimeout).toBeNull();
     });
   });
 
-  // ── 16. complete_milestone delegates to verification ──
+  // ── 16. Bilateral milestone confirmation ──
 
-  describe("complete_milestone delegation", () => {
-    it("should delegate to handleVerifyMilestone instead of injectInstruction", () => {
-      rm.joinRoom("room-1", "alice", makeProfile({ displayName: "Alice" }));
-      rm.joinRoom("room-1", "bob", makeProfile({ displayName: "Bob" }));
+  describe("bilateral milestone confirmation", () => {
+    function setupRoomWithMilestoneDoc() {
+      rm.joinRoom(
+        "room-1",
+        "alice",
+        makeProfile({
+          displayName: "Alice",
+          role: "plumber",
+          stripeAccountId: "acct_alice",
+        }),
+      );
+      rm.joinRoom(
+        "room-1",
+        "bob",
+        makeProfile({
+          displayName: "Bob",
+          role: "homeowner",
+          stripeAccountId: "acct_bob",
+        }),
+      );
+
+      const docInstance = mockDocumentInstances[0];
+      const fixedMilestone = {
+        id: "ms_fixed",
+        documentId: "doc_1",
+        lineItemIndex: 0,
+        description: "Fix boiler",
+        amount: 5000,
+        condition: "Boiler working",
+        status: "pending" as const,
+        escrowHoldId: "hold_1",
+      };
+      const rangeMilestone = {
+        id: "ms_range",
+        documentId: "doc_1",
+        lineItemIndex: 1,
+        description: "Extra work",
+        amount: 10000,
+        condition: "Additional repairs",
+        status: "pending" as const,
+        escrowHoldId: "hold_2",
+        minAmount: 3000,
+        maxAmount: 10000,
+      };
+      const mockDoc = {
+        id: "doc_1",
+        title: "Agreement",
+        content: "# Agreement",
+        negotiationId: "neg_1",
+        parties: [
+          { userId: "alice", name: "Alice", role: "plumber" },
+          { userId: "bob", name: "Bob", role: "homeowner" },
+        ],
+        terms: { currency: "gbp", lineItems: [] } as any,
+        signatures: [],
+        status: "fully_signed",
+        providerId: "alice",
+        clientId: "bob",
+        milestones: [fixedMilestone, rangeMilestone],
+        createdAt: Date.now(),
+      };
+      docInstance.getDocument.mockReturnValue(mockDoc);
+      docInstance.updateMilestones.mockImplementation(
+        (_docId: string, milestones: any[]) => {
+          mockDoc.milestones = milestones;
+        },
+      );
+      return { docInstance, mockDoc, fixedMilestone, rangeMilestone };
+    }
+
+    it("should set provider_confirmed when provider confirms first", () => {
+      const { docInstance } = setupRoomWithMilestoneDoc();
 
       rm.handleClientMessage("alice", {
-        type: "complete_milestone",
-        milestoneId: "ms_123",
-        documentId: "doc_456",
+        type: "confirm_milestone",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
       });
 
-      // Should NOT inject instruction into agent (old behavior)
-      expect(mockAgentInstances[0].injectInstruction).not.toHaveBeenCalled();
-      expect(mockAgentInstances[1].injectInstruction).not.toHaveBeenCalled();
+      expect(docInstance.updateMilestones).toHaveBeenCalled();
+      const updatedMs = docInstance.updateMilestones.mock.calls[0][1];
+      const fixed = updatedMs.find((m: any) => m.id === "ms_fixed");
+      expect(fixed.status).toBe("provider_confirmed");
+      expect(fixed.providerConfirmed).toBe(true);
+      expect(fixed.clientConfirmed).toBe(false);
+    });
+
+    it("should set client_confirmed when client confirms first", () => {
+      const { docInstance } = setupRoomWithMilestoneDoc();
+
+      rm.handleClientMessage("bob", {
+        type: "confirm_milestone",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      const updatedMs = docInstance.updateMilestones.mock.calls[0][1];
+      const fixed = updatedMs.find((m: any) => m.id === "ms_fixed");
+      expect(fixed.status).toBe("client_confirmed");
+      expect(fixed.clientConfirmed).toBe(true);
+      expect(fixed.providerConfirmed).toBe(false);
+    });
+
+    it("should auto-capture and set completed when both confirm a fixed-price milestone", () => {
+      const { docInstance, mockDoc } = setupRoomWithMilestoneDoc();
+
+      // Provider confirms first
+      rm.handleClientMessage("alice", {
+        type: "confirm_milestone",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      // Update mock to reflect the new state
+      const firstUpdate = docInstance.updateMilestones.mock.calls[0][1];
+      mockDoc.milestones = firstUpdate;
+      docInstance.getDocument.mockReturnValue(mockDoc);
+
+      // Client confirms second
+      rm.handleClientMessage("bob", {
+        type: "confirm_milestone",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      const secondUpdate = docInstance.updateMilestones.mock.calls[1][1];
+      const fixed = secondUpdate.find((m: any) => m.id === "ms_fixed");
+      expect(fixed.status).toBe("completed");
+      expect(fixed.providerConfirmed).toBe(true);
+      expect(fixed.clientConfirmed).toBe(true);
+      expect(fixed.completedAt).toBeDefined();
+    });
+
+    it("should set pending_amount when both confirm a range-priced milestone", () => {
+      const { docInstance, mockDoc } = setupRoomWithMilestoneDoc();
+
+      // Provider confirms
+      rm.handleClientMessage("alice", {
+        type: "confirm_milestone",
+        milestoneId: "ms_range",
+        documentId: "doc_1",
+      });
+
+      const firstUpdate = docInstance.updateMilestones.mock.calls[0][1];
+      mockDoc.milestones = firstUpdate;
+      docInstance.getDocument.mockReturnValue(mockDoc);
+
+      // Client confirms
+      rm.handleClientMessage("bob", {
+        type: "confirm_milestone",
+        milestoneId: "ms_range",
+        documentId: "doc_1",
+      });
+
+      const secondUpdate = docInstance.updateMilestones.mock.calls[1][1];
+      const range = secondUpdate.find((m: any) => m.id === "ms_range");
+      expect(range.status).toBe("pending_amount");
+    });
+
+    it("should allow provider to propose amount for pending_amount milestone", () => {
+      const { docInstance, mockDoc } = setupRoomWithMilestoneDoc();
+
+      // Set milestone to pending_amount state
+      mockDoc.milestones = mockDoc.milestones.map((m: any) =>
+        m.id === "ms_range"
+          ? {
+              ...m,
+              status: "pending_amount",
+              providerConfirmed: true,
+              clientConfirmed: true,
+            }
+          : m,
+      );
+      docInstance.getDocument.mockReturnValue(mockDoc);
+
+      rm.handleClientMessage("alice", {
+        type: "propose_milestone_amount",
+        milestoneId: "ms_range",
+        documentId: "doc_1",
+        amount: 7500,
+      });
+
+      const updatedMs = docInstance.updateMilestones.mock.calls[0][1];
+      const range = updatedMs.find((m: any) => m.id === "ms_range");
+      expect(range.proposedAmount).toBe(7500);
+      expect(range.proposedBy).toBe("alice");
+    });
+
+    it("should reject amount proposal from client", () => {
+      const { mockDoc } = setupRoomWithMilestoneDoc();
+
+      mockDoc.milestones = mockDoc.milestones.map((m: any) =>
+        m.id === "ms_range"
+          ? {
+              ...m,
+              status: "pending_amount",
+              providerConfirmed: true,
+              clientConfirmed: true,
+            }
+          : m,
+      );
+
+      rm.handleClientMessage("bob", {
+        type: "propose_milestone_amount",
+        milestoneId: "ms_range",
+        documentId: "doc_1",
+        amount: 7500,
+      });
+
+      expect(panelEmitter.sendToUser).toHaveBeenCalledWith(
+        "bob",
+        expect.objectContaining({
+          panel: "error",
+          message: "Only the provider can propose an amount",
+        }),
+      );
+    });
+
+    it("should allow client to approve proposed amount", () => {
+      const { docInstance, mockDoc } = setupRoomWithMilestoneDoc();
+
+      mockDoc.milestones = mockDoc.milestones.map((m: any) =>
+        m.id === "ms_range"
+          ? {
+              ...m,
+              status: "pending_amount",
+              providerConfirmed: true,
+              clientConfirmed: true,
+              proposedAmount: 7500,
+              proposedBy: "alice",
+            }
+          : m,
+      );
+      docInstance.getDocument.mockReturnValue(mockDoc);
+
+      rm.handleClientMessage("bob", {
+        type: "approve_milestone_amount",
+        milestoneId: "ms_range",
+        documentId: "doc_1",
+      });
+
+      const updatedMs = docInstance.updateMilestones.mock.calls[0][1];
+      const range = updatedMs.find((m: any) => m.id === "ms_range");
+      expect(range.status).toBe("completed");
+      expect(range.amount).toBe(7500);
+      expect(range.completedAt).toBeDefined();
+    });
+
+    it("should allow provider to release escrow", () => {
+      const { docInstance } = setupRoomWithMilestoneDoc();
+
+      rm.handleClientMessage("alice", {
+        type: "release_escrow",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      const updatedMs = docInstance.updateMilestones.mock.calls[0][1];
+      const fixed = updatedMs.find((m: any) => m.id === "ms_fixed");
+      expect(fixed.status).toBe("released");
+    });
+
+    it("should reject release from client", () => {
+      setupRoomWithMilestoneDoc();
+
+      rm.handleClientMessage("bob", {
+        type: "release_escrow",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      expect(panelEmitter.sendToUser).toHaveBeenCalledWith(
+        "bob",
+        expect.objectContaining({
+          panel: "error",
+          message: "Only the provider can release escrow",
+        }),
+      );
+    });
+
+    it("should reject duplicate confirmation from same side", () => {
+      const { mockDoc } = setupRoomWithMilestoneDoc();
+
+      mockDoc.milestones = mockDoc.milestones.map((m: any) =>
+        m.id === "ms_fixed"
+          ? { ...m, status: "provider_confirmed", providerConfirmed: true }
+          : m,
+      );
+
+      rm.handleClientMessage("alice", {
+        type: "confirm_milestone",
+        milestoneId: "ms_fixed",
+        documentId: "doc_1",
+      });
+
+      expect(panelEmitter.sendToUser).toHaveBeenCalledWith(
+        "alice",
+        expect.objectContaining({
+          panel: "error",
+          message: "You already confirmed this milestone",
+        }),
+      );
     });
   });
 });

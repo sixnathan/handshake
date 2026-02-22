@@ -68,8 +68,8 @@ export function loadConfig(): AppConfig {
       model: optional("LLM_MODEL", "anthropic/claude-sonnet-4"),
     },
     trigger: {
-      keyword: optional("TRIGGER_KEYWORD", "chripbbbly"),
-      smartDetectionEnabled: flag("SMART_DETECTION_ENABLED", true),
+      keyword: optional("TRIGGER_KEYWORD", "handshake"),
+      smartDetectionEnabled: flag("SMART_DETECTION_ENABLED", false),
     },
     monzo: {
       accessToken: optional("MONZO_ACCESS_TOKEN"),

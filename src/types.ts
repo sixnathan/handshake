@@ -186,8 +186,13 @@ export interface Negotiation {
 
 export type MilestoneStatus =
   | "pending"
-  | "verifying"
+  | "provider_confirmed"
+  | "client_confirmed"
+  | "pending_amount" // both confirmed, awaiting amount proposal for range-priced
   | "completed"
+  | "released" // provider voluntarily released escrow
+  // Legacy (kept for data compat):
+  | "verifying"
   | "failed"
   | "disputed";
 
@@ -208,6 +213,12 @@ export interface Milestone {
   completedBy?: UserId;
   verificationId?: VerificationId;
   verificationResult?: VerificationResult;
+  providerConfirmed?: boolean;
+  clientConfirmed?: boolean;
+  proposedAmount?: number; // pence — provider's proposed final capture amount
+  proposedBy?: UserId;
+  minAmount?: number; // pence — copied from LineItem for frontend
+  maxAmount?: number; // pence — copied from LineItem for frontend
 }
 
 // ── Verification ──────────────────────────
@@ -282,6 +293,8 @@ export interface LegalDocument {
   signatures: DocumentSignature[];
   status: DocumentStatus;
   milestones?: Milestone[];
+  providerId?: UserId; // negotiation.initiator
+  clientId?: UserId; // negotiation.responder
   createdAt: number;
 }
 
@@ -355,19 +368,28 @@ export type PanelMessage =
 export type ClientMessage =
   | { type: "set_profile"; profile: AgentProfile }
   | { type: "sign_document"; documentId: DocumentId }
-  | {
-      type: "complete_milestone";
-      milestoneId: MilestoneId;
-      documentId: DocumentId;
-    }
   | { type: "set_trigger_keyword"; keyword: string }
   | { type: "join_room"; roomId: RoomId }
   | {
-      type: "verify_milestone";
-      documentId: DocumentId;
+      type: "confirm_milestone";
       milestoneId: MilestoneId;
-      phoneNumber?: string;
-      contactName?: string;
+      documentId: DocumentId;
+    }
+  | {
+      type: "propose_milestone_amount";
+      milestoneId: MilestoneId;
+      documentId: DocumentId;
+      amount: number;
+    }
+  | {
+      type: "approve_milestone_amount";
+      milestoneId: MilestoneId;
+      documentId: DocumentId;
+    }
+  | {
+      type: "release_escrow";
+      milestoneId: MilestoneId;
+      documentId: DocumentId;
     };
 
 // ── Payment ─────────────────────────────────

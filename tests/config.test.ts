@@ -26,13 +26,22 @@ describe("Config Module", () => {
   });
 
   it("should use default values for optional vars", () => {
+    // Clear any env vars that might be set by .env file
+    delete process.env.ELEVENLABS_REGION;
+    delete process.env.ELEVENLABS_LANGUAGE;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.LLM_MODEL;
+    delete process.env.TRIGGER_KEYWORD;
+    delete process.env.SMART_DETECTION_ENABLED;
+    delete process.env.PORT;
+
     const config = loadConfig();
     expect(config.elevenlabs.region).toBe("us");
     expect(config.elevenlabs.language).toBe("en");
     expect(config.llm.provider).toBe("openrouter");
     expect(config.llm.model).toBe("anthropic/claude-sonnet-4");
-    expect(config.trigger.keyword).toBe("chripbbbly");
-    expect(config.trigger.smartDetectionEnabled).toBe(true);
+    expect(config.trigger.keyword).toBe("handshake");
+    expect(config.trigger.smartDetectionEnabled).toBe(false);
     expect(config.port).toBe(3000);
   });
 

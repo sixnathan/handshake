@@ -8,7 +8,8 @@ import type {
   ClientMessage,
   TriggerEvent,
   Negotiation,
-  VerificationResult,
+  DocumentId,
+  MilestoneId,
 } from "../types.js";
 import type {
   FinalTranscript,
@@ -28,8 +29,6 @@ import { MonzoService } from "./monzo.js";
 import { ProfileManager } from "./profile-manager.js";
 import { InProcessPeer } from "./in-process-peer.js";
 import { PanelEmitter } from "./panel-emitter.js";
-import { VerificationService } from "./verification.js";
-import { PhoneVerificationService } from "./phone-verification.js";
 import { createLLMProvider } from "../providers/index.js";
 import { buildTools } from "../tools.js";
 import type { ToolDependencies } from "../tools.js";
@@ -56,6 +55,8 @@ interface Room {
   triggerInProgress: boolean;
   paymentsExecuted: boolean;
   documentIds?: string[];
+  pendingTrigger: { userId: UserId; timestamp: number } | null;
+  pendingTriggerTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 const MAX_USERS_PER_ROOM = 2;
@@ -252,8 +253,8 @@ export class RoomManager implements IRoomManager {
         break;
       }
 
-      case "complete_milestone": {
-        this.handleVerifyMilestone(
+      case "confirm_milestone": {
+        this.handleConfirmMilestone(
           userId,
           message.documentId,
           message.milestoneId,
@@ -261,13 +262,30 @@ export class RoomManager implements IRoomManager {
         break;
       }
 
-      case "verify_milestone": {
-        this.handleVerifyMilestone(
+      case "propose_milestone_amount": {
+        this.handleProposeMilestoneAmount(
           userId,
           message.documentId,
           message.milestoneId,
-          message.phoneNumber,
-          message.contactName,
+          message.amount,
+        );
+        break;
+      }
+
+      case "approve_milestone_amount": {
+        this.handleApproveMilestoneAmount(
+          userId,
+          message.documentId,
+          message.milestoneId,
+        );
+        break;
+      }
+
+      case "release_escrow": {
+        this.handleReleaseEscrow(
+          userId,
+          message.documentId,
+          message.milestoneId,
         );
         break;
       }
@@ -330,6 +348,8 @@ export class RoomManager implements IRoomManager {
       paired: false,
       triggerInProgress: false,
       paymentsExecuted: false,
+      pendingTrigger: null,
+      pendingTriggerTimeout: null,
     };
 
     this.rooms.set(roomId, room);
@@ -367,79 +387,14 @@ export class RoomManager implements IRoomManager {
     });
 
     // Per-user TriggerDetector
-    const triggerLlmProvider = createLLMProvider(
-      this.config.llm.provider,
-      this.config.llm.apiKey,
-    );
     const triggerDetector = new TriggerDetector({
       keyword: this.config.trigger.keyword,
-      smartDetectionEnabled: this.config.trigger.smartDetectionEnabled,
-      llmProvider: triggerLlmProvider,
-      llmModel: this.config.llm.model,
       userId,
-      displayName: profile.displayName,
     });
 
     // Wire per-user trigger events
     triggerDetector.on("triggered", (event: TriggerEvent) =>
       this.handleUserTrigger(room, userId, event),
-    );
-
-    triggerDetector.on(
-      "smart:check",
-      (info: {
-        transcriptLines: number;
-        inputPreview: string;
-        timestamp: number;
-      }) => {
-        this.panelEmitter.sendToUser(userId, {
-          panel: "agent",
-          userId: "system",
-          text: `[Smart Detection] Analyzing ${info.transcriptLines} transcript lines...\n"${info.inputPreview}"`,
-          timestamp: info.timestamp,
-        });
-      },
-    );
-
-    triggerDetector.on(
-      "smart:result",
-      (result: {
-        triggered: boolean;
-        confidence: number;
-        terms: Array<{ term: string; confidence: number; context: string }>;
-        role?: string;
-        summary?: string;
-        error?: string;
-        timestamp: number;
-      }) => {
-        let text: string;
-        if (result.error) {
-          text = `[Smart Detection] Error: ${result.error}`;
-        } else if (result.triggered) {
-          const termList = result.terms
-            .map(
-              (t) =>
-                `"${t.term}" (${(t.confidence * 100).toFixed(0)}%) — ${t.context}`,
-            )
-            .join("\n  ");
-          const roleInfo =
-            result.role && result.role !== "unclear"
-              ? ` | Role: ${result.role}`
-              : "";
-          text = `[Smart Detection] TRIGGERED (confidence: ${(result.confidence * 100).toFixed(0)}%${roleInfo})\n  ${termList}`;
-          if (result.summary) {
-            text += `\n  Summary: ${result.summary}`;
-          }
-        } else {
-          text = `[Smart Detection] No agreement detected (confidence: ${(result.confidence * 100).toFixed(0)}%)`;
-        }
-        this.panelEmitter.sendToUser(userId, {
-          panel: "agent",
-          userId: "system",
-          text,
-          timestamp: result.timestamp,
-        });
-      },
     );
 
     // Wire audio → transcription
@@ -559,6 +514,11 @@ export class RoomManager implements IRoomManager {
         negotiation: neg,
       });
       room.triggerInProgress = false;
+      room.pendingTrigger = null;
+      if (room.pendingTriggerTimeout) {
+        clearTimeout(room.pendingTriggerTimeout);
+        room.pendingTriggerTimeout = null;
+      }
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
       slotA.triggerDetector.reset();
@@ -570,6 +530,11 @@ export class RoomManager implements IRoomManager {
         negotiation: neg,
       });
       room.triggerInProgress = false;
+      room.pendingTrigger = null;
+      if (room.pendingTriggerTimeout) {
+        clearTimeout(room.pendingTriggerTimeout);
+        room.pendingTriggerTimeout = null;
+      }
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
       slotA.triggerDetector.reset();
@@ -655,30 +620,124 @@ export class RoomManager implements IRoomManager {
     });
   }
 
+  private readonly DUAL_KEYWORD_TIMEOUT_MS = 10_000;
+
   private handleUserTrigger(
     room: Room,
     userId: UserId,
     event: TriggerEvent,
   ): void {
-    // Double-trigger guard: if negotiation already active or trigger in progress, ignore
+    // Guard: if negotiation already active or trigger in progress, ignore
     if (room.negotiation?.getActiveNegotiation() || room.triggerInProgress) {
       console.log(
         `[room] Trigger from ${userId} ignored — negotiation already active or trigger in progress`,
       );
       return;
     }
+
+    // Dual-keyword coordination: both users must say the keyword within 10s
+    if (room.pendingTrigger === null) {
+      // First user said it — store and wait for the other
+      room.pendingTrigger = { userId, timestamp: Date.now() };
+      room.pendingTriggerTimeout = setTimeout(() => {
+        console.log(
+          `[room] Dual-keyword timeout — ${userId} said trigger but no match within ${this.DUAL_KEYWORD_TIMEOUT_MS}ms`,
+        );
+        room.pendingTrigger = null;
+        room.pendingTriggerTimeout = null;
+        // Reset the trigger detector so the user can say it again
+        const slot = room.slots.get(userId);
+        if (slot) slot.triggerDetector.reset();
+      }, this.DUAL_KEYWORD_TIMEOUT_MS);
+
+      this.panelEmitter.sendToUser(userId, {
+        panel: "agent",
+        userId: "system",
+        text: `Waiting for other party to say "${this.config.trigger.keyword}"...`,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    // Same user said it twice — ignore
+    if (room.pendingTrigger.userId === userId) {
+      console.log(
+        `[room] Duplicate trigger from ${userId} ignored — already pending`,
+      );
+      return;
+    }
+
+    // Different user within window — dual-keyword confirmed!
+    const elapsed = Date.now() - room.pendingTrigger.timestamp;
+    if (elapsed > this.DUAL_KEYWORD_TIMEOUT_MS) {
+      // Expired — treat this as a new first trigger
+      room.pendingTrigger = { userId, timestamp: Date.now() };
+      return;
+    }
+
+    // Clear pending state
+    if (room.pendingTriggerTimeout) {
+      clearTimeout(room.pendingTriggerTimeout);
+    }
+    room.pendingTrigger = null;
+    room.pendingTriggerTimeout = null;
     room.triggerInProgress = true;
-    this.handleTrigger(room, event);
+
+    console.log(
+      `[room] Dual-keyword confirmed in room ${room.id} (${elapsed}ms apart)`,
+    );
+
+    this.handleTrigger(room, {
+      ...event,
+      type: "dual_keyword",
+    });
   }
 
   private handleTrigger(room: Room, event: TriggerEvent): void {
-    console.log(`[room] Trigger detected: ${event.type} by ${event.speakerId}`);
+    console.log(`[room] Trigger detected: ${event.type} in room ${room.id}`);
 
     for (const slot of room.slots.values()) {
       slot.session.setStatus("negotiating");
     }
 
-    const initiatorSlot = room.slots.get(event.speakerId);
+    // Determine initiator by profile role: the user with a "provider"-like role proposes
+    const providerKeywords = [
+      "provider",
+      "plumber",
+      "contractor",
+      "electrician",
+      "builder",
+      "mechanic",
+      "tradesperson",
+      "freelancer",
+      "consultant",
+      "developer",
+      "designer",
+      "painter",
+      "cleaner",
+      "gardener",
+      "roofer",
+      "locksmith",
+    ];
+
+    let initiatorId: UserId | null = null;
+    for (const [uid] of room.slots) {
+      const profile = this.profileManager.getProfile(uid);
+      if (profile) {
+        const roleLower = profile.role.toLowerCase();
+        if (providerKeywords.some((kw) => roleLower.includes(kw))) {
+          initiatorId = uid;
+          break;
+        }
+      }
+    }
+
+    // Fallback: first speaker (the user who triggered first) is initiator
+    if (!initiatorId) {
+      initiatorId = event.speakerId;
+    }
+
+    const initiatorSlot = room.slots.get(initiatorId);
     if (!initiatorSlot) return;
 
     const conversationContext = initiatorSlot.session.getTranscriptText();
@@ -767,6 +826,17 @@ Inform your user that the agreement has been reached and you are generating the 
       negotiation.responder,
     );
     const recipientStripeId = responderProfile?.stripeAccountId ?? "";
+
+    if (!recipientStripeId) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "execution",
+        negotiationId: negotiation.id,
+        step: "payment_setup",
+        status: "failed",
+        details: "Recipient has no Stripe account connected",
+      });
+      return;
+    }
 
     // Find the document to link escrow holds to milestones
     let documentMilestones: import("../types.js").Milestone[] = [];
@@ -958,13 +1028,11 @@ Inform your user that the agreement has been reached and you are generating the 
     return results;
   }
 
-  private handleVerifyMilestone(
+  private findRoomAndMilestone(
     userId: UserId,
-    documentId: string,
-    milestoneId: string,
-    phoneNumber?: string,
-    contactName?: string,
-  ): void {
+    documentId: DocumentId,
+    milestoneId: MilestoneId,
+  ) {
     for (const room of this.rooms.values()) {
       if (!room.slots.has(userId) || !room.document) continue;
 
@@ -974,7 +1042,7 @@ Inform your user that the agreement has been reached and you are generating the 
           panel: "error",
           message: `Document ${documentId} not found`,
         });
-        return;
+        return null;
       }
 
       const milestone = doc.milestones?.find((m) => m.id === milestoneId);
@@ -983,134 +1051,376 @@ Inform your user that the agreement has been reached and you are generating the 
           panel: "error",
           message: `Milestone ${milestoneId} not found`,
         });
-        return;
+        return null;
       }
 
-      if (milestone.status !== "pending") {
-        this.panelEmitter.sendToUser(userId, {
-          panel: "error",
-          message: `Milestone is already ${milestone.status}`,
-        });
-        return;
-      }
-
-      const lineItem = doc.terms.lineItems[milestone.lineItemIndex];
-      if (!lineItem) {
-        this.panelEmitter.sendToUser(userId, {
-          panel: "error",
-          message: "Associated line item not found",
-        });
-        return;
-      }
-
-      // Update milestone to "verifying"
-      const updatedMilestones = (doc.milestones ?? []).map((m) =>
-        m.id === milestoneId ? { ...m, status: "verifying" as const } : m,
-      );
-      room.document.updateMilestones(documentId, updatedMilestones);
-      this.panelEmitter.broadcast(room.id, {
-        panel: "milestone",
-        milestone: { ...milestone, status: "verifying" },
-      });
-
-      // Create one-shot verification service
-      const llmProvider = createLLMProvider(
-        this.config.llm.provider,
-        this.config.llm.apiKey,
-      );
-
-      const slot = room.slots.get(userId)!;
-      const phoneService = new PhoneVerificationService({
-        apiKey: this.config.elevenlabs.apiKey,
-        phoneNumberId: this.config.elevenlabs.phoneNumberId,
-      });
-
-      const verificationService = new VerificationService(
-        {
-          provider: llmProvider,
-          model: this.config.llm.model,
-          maxTokens: 4096,
-        },
-        room.payment,
-        slot.monzo,
-        phoneService,
-        this.panelEmitter,
-        room.id,
-      );
-
-      // Run verification (async, fire-and-forget with error handling)
-      verificationService
-        .verifyMilestone(
-          doc,
-          milestone,
-          lineItem,
-          userId,
-          phoneNumber,
-          contactName,
-        )
-        .then((result: VerificationResult) => {
-          // Update milestone based on verdict
-          const statusMap = {
-            passed: "completed" as const,
-            failed: "failed" as const,
-            disputed: "disputed" as const,
-            pending: "pending" as const,
-            in_progress: "verifying" as const,
-          };
-
-          const currentDoc = room.document!.getDocument(documentId);
-          if (!currentDoc) return;
-
-          const finalMilestones = (currentDoc.milestones ?? []).map((m) =>
-            m.id === milestoneId
-              ? {
-                  ...m,
-                  status: statusMap[result.status] ?? ("disputed" as const),
-                  verificationId: result.id,
-                  verificationResult: result,
-                  completedAt:
-                    result.status === "passed" ? Date.now() : undefined,
-                  completedBy: result.status === "passed" ? userId : undefined,
-                }
-              : m,
-          );
-          room.document!.updateMilestones(documentId, finalMilestones);
-
-          // Re-broadcast updated document
-          const updatedDoc = room.document!.getDocument(documentId);
-          if (updatedDoc) {
-            this.panelEmitter.broadcast(room.id, {
-              panel: "document",
-              document: updatedDoc,
-            });
-          }
-
-          // Broadcast milestone update
-          const updatedMilestone = finalMilestones.find(
-            (m) => m.id === milestoneId,
-          );
-          if (updatedMilestone) {
-            this.panelEmitter.broadcast(room.id, {
-              panel: "milestone",
-              milestone: updatedMilestone,
-            });
-          }
-        })
-        .catch((err) => {
-          console.error("[room] Verification failed:", err);
-          this.panelEmitter.sendToUser(userId, {
-            panel: "error",
-            message: `Verification failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        });
-
-      return;
+      return { room, doc, milestone };
     }
 
     this.panelEmitter.sendToUser(userId, {
       panel: "error",
-      message: "No active room found for verification",
+      message: "No active room found",
     });
+    return null;
+  }
+
+  private handleConfirmMilestone(
+    userId: UserId,
+    documentId: DocumentId,
+    milestoneId: MilestoneId,
+  ): void {
+    const found = this.findRoomAndMilestone(userId, documentId, milestoneId);
+    if (!found) return;
+    const { room, doc, milestone } = found;
+
+    // Only allow confirmation from pending / partially confirmed states
+    const allowedStatuses = [
+      "pending",
+      "provider_confirmed",
+      "client_confirmed",
+    ];
+    if (!allowedStatuses.includes(milestone.status)) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Cannot confirm — milestone is ${milestone.status}`,
+      });
+      return;
+    }
+
+    const isProvider = userId === doc.providerId;
+    const isClient = userId === doc.clientId;
+    if (!isProvider && !isClient) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "You are not a party to this document",
+      });
+      return;
+    }
+
+    // Check if this side already confirmed
+    if (isProvider && milestone.providerConfirmed) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "You already confirmed this milestone",
+      });
+      return;
+    }
+    if (isClient && milestone.clientConfirmed) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "You already confirmed this milestone",
+      });
+      return;
+    }
+
+    const providerConfirmed = isProvider
+      ? true
+      : (milestone.providerConfirmed ?? false);
+    const clientConfirmed = isClient
+      ? true
+      : (milestone.clientConfirmed ?? false);
+    const bothConfirmed = providerConfirmed && clientConfirmed;
+
+    let newStatus: import("../types.js").MilestoneStatus;
+    if (bothConfirmed) {
+      // Range-priced items need amount proposal
+      const isRange =
+        milestone.minAmount != null && milestone.maxAmount != null;
+      newStatus = isRange ? "pending_amount" : "completed";
+    } else {
+      newStatus = isProvider ? "provider_confirmed" : "client_confirmed";
+    }
+
+    const updatedMilestone = {
+      ...milestone,
+      providerConfirmed,
+      clientConfirmed,
+      status: newStatus,
+      ...(newStatus === "completed"
+        ? { completedAt: Date.now(), completedBy: userId }
+        : {}),
+    };
+
+    const updatedMilestones = (doc.milestones ?? []).map((m) =>
+      m.id === milestoneId ? updatedMilestone : m,
+    );
+    room.document!.updateMilestones(documentId, updatedMilestones);
+
+    this.panelEmitter.broadcast(room.id, {
+      panel: "milestone",
+      milestone: updatedMilestone,
+    });
+    const updatedDoc = room.document!.getDocument(documentId);
+    if (updatedDoc) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "document",
+        document: updatedDoc,
+      });
+    }
+
+    // Auto-capture for fixed-price items when both confirmed
+    if (newStatus === "completed" && milestone.escrowHoldId) {
+      room.payment
+        .captureEscrow(milestone.escrowHoldId, milestone.amount)
+        .then(() => {
+          this.panelEmitter.broadcast(room.id, {
+            panel: "payment_receipt",
+            amount: milestone.amount,
+            currency: doc.terms.currency,
+            recipient:
+              doc.parties.find((p) => p.userId === doc.providerId)?.name ??
+              "Provider",
+            status: "succeeded",
+            paymentIntentId: milestone.escrowHoldId!,
+            description: milestone.description,
+          });
+          this.checkAllMilestonesComplete(room, documentId);
+        })
+        .catch((err) => {
+          console.error("[room] Escrow capture failed:", err);
+          this.panelEmitter.broadcast(room.id, {
+            panel: "error",
+            message: `Escrow capture failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
+    } else if (newStatus === "pending_amount") {
+      // No capture yet — wait for amount proposal
+    }
+  }
+
+  private handleProposeMilestoneAmount(
+    userId: UserId,
+    documentId: DocumentId,
+    milestoneId: MilestoneId,
+    amount: number,
+  ): void {
+    const found = this.findRoomAndMilestone(userId, documentId, milestoneId);
+    if (!found) return;
+    const { room, doc, milestone } = found;
+
+    if (userId !== doc.providerId) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "Only the provider can propose an amount",
+      });
+      return;
+    }
+    if (milestone.status !== "pending_amount") {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Cannot propose amount — milestone is ${milestone.status}`,
+      });
+      return;
+    }
+    if (milestone.minAmount != null && amount < milestone.minAmount) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Amount must be at least ${milestone.minAmount}`,
+      });
+      return;
+    }
+    if (milestone.maxAmount != null && amount > milestone.maxAmount) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Amount must be at most ${milestone.maxAmount}`,
+      });
+      return;
+    }
+
+    const updatedMilestone = {
+      ...milestone,
+      proposedAmount: amount,
+      proposedBy: userId,
+    };
+    const updatedMilestones = (doc.milestones ?? []).map((m) =>
+      m.id === milestoneId ? updatedMilestone : m,
+    );
+    room.document!.updateMilestones(documentId, updatedMilestones);
+
+    this.panelEmitter.broadcast(room.id, {
+      panel: "milestone",
+      milestone: updatedMilestone,
+    });
+    const updatedDoc = room.document!.getDocument(documentId);
+    if (updatedDoc) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "document",
+        document: updatedDoc,
+      });
+    }
+  }
+
+  private handleApproveMilestoneAmount(
+    userId: UserId,
+    documentId: DocumentId,
+    milestoneId: MilestoneId,
+  ): void {
+    const found = this.findRoomAndMilestone(userId, documentId, milestoneId);
+    if (!found) return;
+    const { room, doc, milestone } = found;
+
+    if (userId !== doc.clientId) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "Only the client can approve the amount",
+      });
+      return;
+    }
+    if (milestone.status !== "pending_amount") {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Cannot approve — milestone is ${milestone.status}`,
+      });
+      return;
+    }
+    if (milestone.proposedAmount == null) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "No amount has been proposed yet",
+      });
+      return;
+    }
+
+    const updatedMilestone = {
+      ...milestone,
+      status: "completed" as const,
+      amount: milestone.proposedAmount,
+      completedAt: Date.now(),
+      completedBy: userId,
+    };
+    const updatedMilestones = (doc.milestones ?? []).map((m) =>
+      m.id === milestoneId ? updatedMilestone : m,
+    );
+    room.document!.updateMilestones(documentId, updatedMilestones);
+
+    this.panelEmitter.broadcast(room.id, {
+      panel: "milestone",
+      milestone: updatedMilestone,
+    });
+    const updatedDoc = room.document!.getDocument(documentId);
+    if (updatedDoc) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "document",
+        document: updatedDoc,
+      });
+    }
+
+    // Capture escrow at the approved amount
+    if (milestone.escrowHoldId) {
+      room.payment
+        .captureEscrow(milestone.escrowHoldId, milestone.proposedAmount)
+        .then(() => {
+          this.panelEmitter.broadcast(room.id, {
+            panel: "payment_receipt",
+            amount: milestone.proposedAmount!,
+            currency: doc.terms.currency,
+            recipient:
+              doc.parties.find((p) => p.userId === doc.providerId)?.name ??
+              "Provider",
+            status: "succeeded",
+            paymentIntentId: milestone.escrowHoldId!,
+            description: milestone.description,
+          });
+          this.checkAllMilestonesComplete(room, documentId);
+        })
+        .catch((err) => {
+          console.error("[room] Escrow capture failed:", err);
+          this.panelEmitter.broadcast(room.id, {
+            panel: "error",
+            message: `Escrow capture failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
+    }
+  }
+
+  private handleReleaseEscrow(
+    userId: UserId,
+    documentId: DocumentId,
+    milestoneId: MilestoneId,
+  ): void {
+    const found = this.findRoomAndMilestone(userId, documentId, milestoneId);
+    if (!found) return;
+    const { room, doc, milestone } = found;
+
+    if (userId !== doc.providerId) {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: "Only the provider can release escrow",
+      });
+      return;
+    }
+    if (milestone.status === "completed" || milestone.status === "released") {
+      this.panelEmitter.sendToUser(userId, {
+        panel: "error",
+        message: `Cannot release — milestone is ${milestone.status}`,
+      });
+      return;
+    }
+
+    const updatedMilestone = { ...milestone, status: "released" as const };
+    const updatedMilestones = (doc.milestones ?? []).map((m) =>
+      m.id === milestoneId ? updatedMilestone : m,
+    );
+    room.document!.updateMilestones(documentId, updatedMilestones);
+
+    this.panelEmitter.broadcast(room.id, {
+      panel: "milestone",
+      milestone: updatedMilestone,
+    });
+    const updatedDoc = room.document!.getDocument(documentId);
+    if (updatedDoc) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "document",
+        document: updatedDoc,
+      });
+    }
+
+    // Release escrow funds
+    if (milestone.escrowHoldId) {
+      room.payment
+        .releaseEscrow(milestone.escrowHoldId)
+        .then(() => {
+          this.panelEmitter.broadcast(room.id, {
+            panel: "payment_receipt",
+            amount: milestone.amount,
+            currency: doc.terms.currency,
+            recipient:
+              doc.parties.find((p) => p.userId === doc.clientId)?.name ??
+              "Client",
+            status: "succeeded",
+            paymentIntentId: milestone.escrowHoldId!,
+            description: `Released: ${milestone.description}`,
+          });
+          this.checkAllMilestonesComplete(room, documentId);
+        })
+        .catch((err) => {
+          console.error("[room] Escrow release failed:", err);
+          this.panelEmitter.broadcast(room.id, {
+            panel: "error",
+            message: `Escrow release failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
+    }
+  }
+
+  private checkAllMilestonesComplete(room: Room, documentId: string): void {
+    const doc = room.document?.getDocument(documentId);
+    if (!doc?.milestones) return;
+
+    const allDone = doc.milestones.every(
+      (m) => m.status === "completed" || m.status === "released",
+    );
+    if (allDone) {
+      for (const slot of room.slots.values()) {
+        slot.session.setStatus("completed");
+      }
+      this.panelEmitter.broadcast(room.id, {
+        panel: "status",
+        roomId: room.id,
+        users: [...room.slots.keys()],
+        sessionStatus: "completed",
+      });
+    }
   }
 
   private cleanupSlot(room: Room, userId: UserId): void {
@@ -1130,6 +1440,11 @@ Inform your user that the agreement has been reached and you are generating the 
     if (room.slots.size < 2) {
       room.paired = false;
       room.triggerInProgress = false;
+      if (room.pendingTriggerTimeout) {
+        clearTimeout(room.pendingTriggerTimeout);
+      }
+      room.pendingTrigger = null;
+      room.pendingTriggerTimeout = null;
     }
 
     // Abort active negotiation when a user leaves

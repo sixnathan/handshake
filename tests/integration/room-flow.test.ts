@@ -226,7 +226,7 @@ const config: AppConfig = {
   elevenlabs: { apiKey: "test-key", region: "us", language: "en" },
   stripe: { secretKey: "sk_test_xxx", platformAccountId: "acct_platform" },
   llm: { provider: "openrouter", apiKey: "test-llm-key", model: "test-model" },
-  trigger: { keyword: "chripbbbly", smartDetectionEnabled: false },
+  trigger: { keyword: "handshake", smartDetectionEnabled: false },
   monzo: {},
   port: 3000,
 };
@@ -409,8 +409,8 @@ describe("Room Lifecycle Integration Tests", () => {
       let agentCallCount = 0;
 
       llmHandler = (params: LLMCreateParams): LLMResponse => {
-        // Document generation request (system prompt contains "legal document")
-        if (params.system.toLowerCase().includes("legal document")) {
+        // Document generation request (DocumentService uses "You are a legal document generator")
+        if (params.system.startsWith("You are a legal document generator")) {
           return {
             content: [
               {
@@ -569,19 +569,29 @@ describe("Room Lifecycle Integration Tests", () => {
       expect(room).toBeDefined();
       expect(room.slots.size).toBe(2);
 
-      // Feed a transcript containing the trigger keyword to alice's trigger detector
+      // Feed a transcript containing the trigger keyword to BOTH users' trigger detectors
+      // (dual-keyword: both must say "handshake" within 10s)
       const aliceSlot = room.slots.get("alice")!;
+      const bobSlot = room.slots.get("bob")!;
       aliceSlot.triggerDetector.feedTranscript({
         id: "t-trigger-1",
         speaker: "alice",
-        text: "I think we should use chripbbbly to seal the deal",
+        text: "I think we should say handshake to seal the deal",
+        timestamp: Date.now(),
+        isFinal: true,
+        source: "local" as const,
+      });
+      bobSlot.triggerDetector.feedTranscript({
+        id: "t-trigger-2",
+        speaker: "bob",
+        text: "handshake",
         timestamp: Date.now(),
         isFinal: true,
         source: "local" as const,
       });
 
-      // Wait for the trigger to fire and the agent to process
-      // The trigger emits "triggered" → handleUserTrigger → handleTrigger →
+      // Wait for the dual-keyword trigger to fire and the agent to process
+      // Both triggers → handleUserTrigger (pending then confirm) → handleTrigger →
       // agent.startNegotiation (async LLM call) → tool handler creates negotiation →
       // peer sends proposal to other agent → other agent receives and evaluates
       await tick(500);
@@ -673,7 +683,7 @@ describe("Room Lifecycle Integration Tests", () => {
     it("should generate document after agreement and execute payments after both sign", async () => {
       // Configure LLM for document generation
       llmHandler = (params: LLMCreateParams): LLMResponse => {
-        if (params.system.toLowerCase().includes("legal document")) {
+        if (params.system.startsWith("You are a legal document generator")) {
           return {
             content: [
               {

@@ -8,7 +8,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDocumentStore, type LegalDocument } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
-import { useVerificationStore } from "@/stores/verification-store";
 import { ContractView } from "@/components/contracts/ContractView";
 
 interface DocumentOverlayProps {
@@ -31,7 +30,6 @@ export function DocumentOverlay({
   const storeMilestones = useDocumentStore((s) => s.milestones);
   const userId = useSessionStore((s) => s.userId);
   const signedRef = useRef(false);
-  const openVerification = useVerificationStore((s) => s.openModal);
 
   const doc = externalDoc ?? storeDoc;
 
@@ -63,38 +61,71 @@ export function DocumentOverlay({
     addSignature(userId);
   }
 
-  function handleCompleteMilestone(milestoneId: string) {
+  function handleConfirmMilestone(milestoneId: string) {
     if (!panelWs.current || !doc) return;
     panelWs.current.send(
       JSON.stringify({
-        type: "complete_milestone",
+        type: "confirm_milestone",
         milestoneId,
         documentId: doc.id,
       }),
     );
   }
 
-  function handleVerifyMilestone(milestoneId: string) {
-    openVerification(doc!.id, milestoneId);
+  function handleProposeMilestoneAmount(milestoneId: string, amount: number) {
+    if (!panelWs.current || !doc) return;
+    panelWs.current.send(
+      JSON.stringify({
+        type: "propose_milestone_amount",
+        milestoneId,
+        documentId: doc.id,
+        amount,
+      }),
+    );
+  }
+
+  function handleApproveMilestoneAmount(milestoneId: string) {
+    if (!panelWs.current || !doc) return;
+    panelWs.current.send(
+      JSON.stringify({
+        type: "approve_milestone_amount",
+        milestoneId,
+        documentId: doc.id,
+      }),
+    );
+  }
+
+  function handleReleaseEscrow(milestoneId: string) {
+    if (!panelWs.current || !doc) return;
+    panelWs.current.send(
+      JSON.stringify({
+        type: "release_escrow",
+        milestoneId,
+        documentId: doc.id,
+      }),
+    );
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-[700px] overflow-hidden border-separator bg-surface-secondary p-0">
-        <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="text-text-primary">
-            Contract Details
-          </DialogTitle>
+        <DialogHeader className="sr-only">
+          <DialogTitle>Contract Details</DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[calc(85vh-80px)] px-6 pb-6">
+        <ScrollArea className="max-h-[calc(85vh-20px)] px-6 py-6">
           <ContractView
             doc={doc}
             milestones={milestones}
             readOnly={readOnly}
+            userId={userId ?? undefined}
+            providerId={doc.providerId}
+            clientId={doc.clientId}
             onSign={handleSign}
-            onCompleteMilestone={handleCompleteMilestone}
-            onVerifyMilestone={handleVerifyMilestone}
+            onConfirmMilestone={handleConfirmMilestone}
+            onProposeMilestoneAmount={handleProposeMilestoneAmount}
+            onApproveMilestoneAmount={handleApproveMilestoneAmount}
+            onReleaseEscrow={handleReleaseEscrow}
             alreadySigned={alreadySigned}
           />
         </ScrollArea>

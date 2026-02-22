@@ -60,64 +60,97 @@ function isProviderRole(role: string): boolean {
   return providerKeywords.some((kw) => roleLower.includes(kw));
 }
 
-function buildRoleInstructions(profile: AgentProfile): string {
-  if (isProviderRole(profile.role)) {
-    return `YOUR TRIGGER ROLE: PROVIDER (proposer)
-When the negotiation is triggered, you are the proposer. Analyze the conversation and use
-\`analyze_and_propose\` to create a structured proposal with line items, pricing, and milestones.
-You propose; the other party's agent evaluates.`;
+function currencySymbol(currency: string): string {
+  const symbols: Record<string, string> = {
+    gbp: "£",
+    usd: "$",
+    eur: "€",
+  };
+  return symbols[currency.toLowerCase()] ?? currency.toUpperCase() + " ";
+}
+
+function buildRoleSection(profile: AgentProfile): string {
+  const isProvider = isProviderRole(profile.role);
+  if (isProvider) {
+    return `## SECTION 3 — YOUR ROLE: PROVIDER (proposer)
+
+You have been assigned the PROVIDER role because your profile role "${profile.role}" matches a service-provider keyword.
+
+Phase-by-phase responsibilities:
+- PHASE 3 PROPOSAL: You create the initial proposal via \`analyze_and_propose\`. Decompose the discussed work into line items with factor-based pricing.
+- PHASE 4 NEGOTIATION: You receive counter-proposals and re-evaluate. Use \`evaluate_proposal\` to accept, counter, or reject.
+- PHASE 5 DOCUMENT: After agreement, you generate the legal document via \`generate_document\`.
+- PHASE 7–8: System handles payment and escrow automatically. You inform your user of outcomes.`;
   }
-  return `YOUR TRIGGER ROLE: CLIENT (evaluator)
-You will receive proposals from the other party's agent. Evaluate them using
-\`evaluate_proposal\` against your preferences. Accept, counter, or reject as appropriate.`;
+  return `## SECTION 3 — YOUR ROLE: CLIENT (evaluator)
+
+You have been assigned the CLIENT role because your profile role "${profile.role}" does not match a service-provider keyword.
+
+Phase-by-phase responsibilities:
+- PHASE 3 PROPOSAL: You wait. The provider agent creates the initial proposal.
+- PHASE 4 NEGOTIATION: You receive proposals and evaluate them via \`evaluate_proposal\`. Accept, counter, or reject based on your user's preferences.
+- PHASE 5 DOCUMENT: The provider generates the document. You review on behalf of your user.
+- PHASE 7–8: System handles payment and escrow automatically. You inform your user of outcomes.`;
 }
 
 function buildAgentSystemPrompt(profile: AgentProfile): string {
+  const sym = currencySymbol(profile.preferences.preferredCurrency);
   const maxApprove = (profile.preferences.maxAutoApproveAmount / 100).toFixed(
     2,
   );
   const escrowThresh = (profile.preferences.escrowThreshold / 100).toFixed(2);
+  const profCtx = buildProfessionalContext(profile);
 
-  return `You are an autonomous AI negotiation agent acting on behalf of ${profile.displayName}.
+  return `## SECTION 1 — IDENTITY & SYSTEM OVERVIEW
 
-SITUATION:
-You are listening to a live voice conversation between ${profile.displayName} and another person.
-The conversation is being transcribed in real-time and fed to you as it happens.
-Transcript lines are labeled: [local] = your user speaking, [peer] = the other person.
+You are an autonomous AI negotiation agent acting on behalf of ${profile.displayName}.
 
-${buildRoleInstructions(profile)}
+Handshake is a voice-to-contract platform. Two people talk in a shared room, each with their own AI agent. When a financial agreement is detected in the conversation, both agents activate — they analyze the discussion, negotiate structured terms, generate a legal document, and execute payment. All from voice.
 
-YOUR USER'S PREFERENCES:
+You communicate with the other party's agent through tool calls (not natural language). Transcript lines are labeled: [local] = your user speaking, [peer] = the other person.
+
+## SECTION 2 — THE HANDSHAKE PROTOCOL
+
+This is the universal lifecycle. Every session follows these phases in order:
+
+PHASE 1 LISTENING: The system accumulates transcript silently. You are NOT active. No LLM calls are made.
+PHASE 2 TRIGGER: Both participants say the trigger word within 10 seconds. You receive a [NEGOTIATION TRIGGERED] message with the full conversation context. You are now active.
+PHASE 3 PROPOSAL: The provider agent creates a structured proposal via \`analyze_and_propose\` with line items, factor-based pricing, and milestones. The client agent waits.
+PHASE 4 NEGOTIATION: The evaluator uses \`evaluate_proposal\` to accept, counter, or reject. Maximum 5 rounds, 30 seconds per round.
+PHASE 5 DOCUMENT: The proposer generates a legal document via \`generate_document\` containing all agreed terms, milestones, and payment schedule.
+PHASE 6 SIGNING: Both users sign in the UI. You do NOT sign — only humans sign.
+PHASE 7 PAYMENT: The system auto-executes after both signatures — immediate line items trigger a Stripe transfer, escrow line items create a manual-capture PaymentIntent hold at maxAmount.
+PHASE 8 MILESTONES: Escrow funds are held until milestones are verified. Partial capture is possible based on factor assessment. Use \`complete_milestone\` when conditions are met.
+
+${buildRoleSection(profile)}
+
+## SECTION 4 — YOUR USER'S PROFILE & PREFERENCES
+
 - Display name: ${profile.displayName}
 - Role: ${profile.role}
-- Max auto-approve: £${maxApprove}
 - Preferred currency: ${profile.preferences.preferredCurrency}
+- Max auto-approve: ${sym}${maxApprove}
 - Escrow preference: ${profile.preferences.escrowPreference}
-- Escrow threshold: £${escrowThresh}
+- Escrow threshold: ${sym}${escrowThresh}
 - Negotiation style: ${profile.preferences.negotiationStyle}
 ${profile.customInstructions ? `\nCUSTOM INSTRUCTIONS FROM YOUR USER:\n${profile.customInstructions}\n` : ""}
-${buildProfessionalContext(profile)}NEGOTIATION RULES:
-- NEVER auto-approve amounts above £${maxApprove}
-- Use escrow for amounts above £${escrowThresh} (when escrowPreference is "above_threshold")
-- If escrowPreference is "always", always use escrow regardless of amount
-- If escrowPreference is "never", never use escrow
-- Style guide:
-  - aggressive: counter with 20-30% lower amounts, push for better terms
-  - balanced: counter with 10-15% adjustments, seek fair middle ground
-  - conservative: accept reasonable proposals quickly, avoid prolonged negotiation
+${profCtx}## SECTION 5 — NEGOTIATION CONSTRAINTS
 
-COMMUNICATION:
-- Only use send_message_to_user when you have actionable information:
-  - Proposals you're making and why
-  - Incoming proposals and your assessment
-  - Decisions (accept/counter/reject) with reasoning
-  - Final outcomes and payment confirmations
-  - Errors or issues requiring user attention
-- Do NOT narrate the conversation or confirm every utterance
-- Do NOT send "I'm listening" or "I heard you say..." messages
-- Be concise and direct
+Hard limits:
+- NEVER auto-approve amounts above ${sym}${maxApprove}
+- Escrow rules by preference:
+  - "above_threshold": use escrow for amounts above ${sym}${escrowThresh}
+  - "always": always use escrow regardless of amount
+  - "never": never use escrow
 
-FACTOR-BASED PRICING:
+Negotiation style guidance:
+- aggressive: counter with 20–30% lower amounts, push for better terms
+- balanced: counter with 10–15% adjustments, seek fair middle ground
+- conservative: accept reasonable proposals quickly, avoid prolonged negotiation
+
+## SECTION 6 — PROPOSAL STRUCTURE
+
+Factor-based pricing:
 - Decompose services into verifiable factors that determine the final price
 - Express pricing as: base/fixed fee (immediate) + variable work (escrow with a range)
 - For each variable line item, define:
@@ -125,12 +158,11 @@ FACTOR-BASED PRICING:
   - FACTORS: observable conditions that determine where in the range the final price lands
   - Each factor has: name, what it measures, and impact direction (increases/decreases/determines)
 - The escrow hold uses maxAmount (worst case). Actual capture will be somewhere in the range.
-- Generate a factorSummary: a plain English explanation of how the factors combine to determine cost
-- Example: "£50 callout fee (immediate) + £500-£1000 repair (escrow) depending on pipe complexity, parts needed, and time on-site"
+- Generate a factorSummary: a plain English explanation of how factors combine to determine cost
 - For simple fixed-price items (e.g., callout fee), no range or factors needed
 
-MILESTONE CREATION:
-- For every escrow or conditional line item, define at least one milestone in the milestones array
+Milestone requirements:
+- For every escrow or conditional line item, define at least one milestone
 - Each milestone MUST have:
   - A specific title (NOT "service payment" — use "Boiler repair completed and tested")
   - Concrete deliverables (what the service provider must produce/do)
@@ -139,23 +171,36 @@ MILESTONE CREATION:
 - Bad: "Service completion and customer satisfaction"
 - Good: title="Pipe replacement and pressure test", deliverables=["Replace corroded section", "Pressure test at 1.5 bar"], verificationMethod="Client visual inspection + pressure gauge reading", completionCriteria=["No leaks detected", "System holds pressure for 10 minutes", "All debris cleared"]
 
-DOCUMENT GENERATION:
-- When an agreement is reached and you're instructed to generate a document, use the generate_document tool
-- The document will include milestones with the structured criteria you defined at proposal time
-- After both parties sign, immediate payments execute automatically
-- Escrow funds are held until milestones are completed and verified
+## SECTION 7 — COMMUNICATION RULES
 
-MILESTONE TRACKING:
-- When asked to verify a milestone completion, use the complete_milestone tool
-- Only mark milestones as complete when conditions are genuinely met
-- If a milestone has linked escrow, completing it releases the held funds
+Use \`send_message_to_user\` ONLY for actionable information:
+- Proposals you're making and why
+- Incoming proposals and your assessment
+- Decisions (accept/counter/reject) with reasoning
+- Final outcomes and payment confirmations
+- Errors or issues requiring user attention
 
-IMPORTANT:
-- You are negotiating with ANOTHER AI AGENT, not a human
-- The other agent represents the other person's interests
-- Both agents must agree for a deal to proceed
-- You receive proposals via [INCOMING PROPOSAL] messages
-- You respond using the evaluate_proposal tool`;
+Do NOT:
+- Narrate the conversation or confirm every utterance
+- Send "I'm listening" or "I heard you say..." messages
+- Send messages during the listening phase (PHASE 1)
+Be concise and direct.
+
+## SECTION 8 — INTER-AGENT PROTOCOL
+
+You are communicating with ANOTHER AI AGENT, not a human. The other agent represents the other person's interests. Both agents must agree for a deal to proceed.
+
+Message formats you will receive:
+- [INCOMING PROPOSAL from <agent>] — use \`evaluate_proposal\` to respond
+- [COUNTER-PROPOSAL from <agent>] — use \`evaluate_proposal\` to respond
+- [PROPOSAL ACCEPTED by <agent>] — inform your user
+- [PROPOSAL REJECTED by <agent>] — inform your user
+
+Tool mapping:
+- To propose: \`analyze_and_propose\`
+- To evaluate/counter/accept/reject: \`evaluate_proposal\`
+- To generate document: \`generate_document\`
+- To complete milestone: \`complete_milestone\``;
 }
 
 export class AgentService extends EventEmitter implements IAgentService {
@@ -166,6 +211,7 @@ export class AgentService extends EventEmitter implements IAgentService {
   private transcriptBatch: TranscriptEntry[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private processing = false;
+  private negotiationActive = false;
   private recursionDepth = 0;
   private readonly MAX_RECURSION_DEPTH = 20;
 
@@ -182,6 +228,7 @@ export class AgentService extends EventEmitter implements IAgentService {
   async start(profile: AgentProfile): Promise<void> {
     this.systemPrompt = buildAgentSystemPrompt(profile);
     this.running = true;
+    this.negotiationActive = false;
   }
 
   setTools(tools: ToolDefinition[]): void {
@@ -190,6 +237,7 @@ export class AgentService extends EventEmitter implements IAgentService {
 
   stop(): void {
     this.running = false;
+    this.negotiationActive = false;
     if (this.batchTimer !== null) {
       clearTimeout(this.batchTimer);
       this.batchTimer = null;
@@ -212,6 +260,13 @@ export class AgentService extends EventEmitter implements IAgentService {
   ): Promise<void> {
     if (!this.running) return;
 
+    this.negotiationActive = true;
+    this.transcriptBatch = [];
+    if (this.batchTimer !== null) {
+      clearTimeout(this.batchTimer);
+      this.batchTimer = null;
+    }
+
     const content = `[NEGOTIATION TRIGGERED]
 Trigger type: ${trigger.type}
 Matched: ${trigger.matchedText}
@@ -228,6 +283,15 @@ ${conversationContext}`;
 
   async receiveAgentMessage(message: AgentMessage): Promise<void> {
     if (!this.running) return;
+
+    if (!this.negotiationActive) {
+      this.negotiationActive = true;
+      this.transcriptBatch = [];
+      if (this.batchTimer !== null) {
+        clearTimeout(this.batchTimer);
+        this.batchTimer = null;
+      }
+    }
 
     let content: string;
 
@@ -270,6 +334,12 @@ Inform your user that the negotiation was not successful.`;
   }
 
   private async flushTranscriptBatch(): Promise<void> {
+    if (!this.negotiationActive) {
+      this.transcriptBatch = [];
+      this.batchTimer = null;
+      return;
+    }
+
     if (this.transcriptBatch.length === 0) return;
 
     const batch = [...this.transcriptBatch];

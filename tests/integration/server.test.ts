@@ -26,13 +26,16 @@ describe("Server Integration (real server)", () => {
     const roomManager = new RoomManager(config, panelEmitter, profileManager);
 
     const __dirname = fileURLToPath(new URL(".", import.meta.url));
-    const PUBLIC_DIR = join(__dirname, "..", "..", "public");
+    const PUBLIC_DIR = join(__dirname, "..", "..", "frontend", "dist");
 
     const MIME_TYPES: Record<string, string> = {
       ".html": "text/html; charset=utf-8",
       ".css": "text/css; charset=utf-8",
       ".js": "application/javascript; charset=utf-8",
       ".json": "application/json; charset=utf-8",
+      ".png": "image/png",
+      ".ico": "image/x-icon",
+      ".svg": "image/svg+xml",
     };
 
     server = createServer(async (req, res) => {
@@ -56,8 +59,15 @@ describe("Server Integration (real server)", () => {
         });
         res.end(data);
       } catch {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "not found" }));
+        // SPA fallback — serve index.html for any non-API route
+        try {
+          const fallback = await readFile(join(PUBLIC_DIR, "index.html"));
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(fallback);
+        } catch {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "not found" }));
+        }
       }
     });
 
@@ -114,9 +124,12 @@ describe("Server Integration (real server)", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
   });
 
-  it("should return 404 for unknown paths", async () => {
+  it("should serve index.html as SPA fallback for unknown paths", async () => {
     const res = await fetch(`http://localhost:${TEST_PORT}/nonexistent`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Handshake");
+    expect(res.headers.get("content-type")).toContain("text/html");
   });
 
   it("should accept WebSocket connection on /ws/panels", async () => {

@@ -102,6 +102,8 @@ export class DocumentService extends EventEmitter implements IDocumentService {
       terms: proposal,
       signatures: [],
       status: "draft",
+      providerId: negotiation.initiator,
+      clientId: negotiation.responder,
       createdAt: Date.now(),
     };
 
@@ -187,6 +189,8 @@ export class DocumentService extends EventEmitter implements IDocumentService {
           amount: li.maxAmount ?? li.amount,
           condition: li.condition ?? `Completion of: ${li.description}`,
           status: "pending",
+          minAmount: li.minAmount,
+          maxAmount: li.maxAmount,
         });
       }
     });

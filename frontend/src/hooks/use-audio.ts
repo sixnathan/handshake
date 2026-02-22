@@ -6,12 +6,18 @@ export function useAudioWebSocket() {
   const userId = useSessionStore((s) => s.userId);
   const roomId = useSessionStore((s) => s.roomId);
   const audioRelay = useSessionStore((s) => s.audioRelay);
+  const micMuted = useSessionStore((s) => s.micMuted);
   const audioRelayRef = useRef(audioRelay);
+  const micMutedRef = useRef(micMuted);
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     audioRelayRef.current = audioRelay;
   }, [audioRelay]);
+
+  useEffect(() => {
+    micMutedRef.current = micMuted;
+  }, [micMuted]);
 
   useEffect(() => {
     if (!userId || !roomId) return;
@@ -23,7 +29,7 @@ export function useAudioWebSocket() {
     wsRef.current = ws;
 
     ws.addEventListener("open", () => {
-      startMicrophone(ws);
+      startMicrophone(ws, micMutedRef);
     });
 
     // Playback
@@ -85,7 +91,10 @@ function resampleTo16k(float32: Float32Array, fromRate: number): Float32Array {
   return out;
 }
 
-async function startMicrophone(ws: WebSocket): Promise<void> {
+async function startMicrophone(
+  ws: WebSocket,
+  micMutedRef: React.RefObject<boolean>,
+): Promise<void> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -106,6 +115,7 @@ async function startMicrophone(ws: WebSocket): Promise<void> {
 
     processor.onaudioprocess = (event) => {
       if (ws.readyState !== WebSocket.OPEN) return;
+      if (micMutedRef.current) return;
       const raw = event.inputBuffer.getChannelData(0);
       const resampled = resampleTo16k(raw, actualRate);
       const int16 = new Int16Array(resampled.length);

@@ -446,6 +446,84 @@ describe("DocumentService — getDocument for non-existent ID", () => {
   });
 });
 
+describe("DocumentService — providerId/clientId and range milestone fields", () => {
+  let doc: DocumentService;
+  let mockLLM: ReturnType<typeof makeMockLLM>;
+
+  beforeEach(() => {
+    mockLLM = makeMockLLM();
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should set providerId and clientId from negotiation", async () => {
+    const neg = makeNegotiation(); // initiator: alice, responder: bob
+    const result = await doc.generateDocument(
+      neg,
+      makeProposal(),
+      makeParties(),
+      "ctx",
+    );
+
+    expect(result.providerId).toBe("alice");
+    expect(result.clientId).toBe("bob");
+  });
+
+  it("should copy minAmount/maxAmount from line item to milestone", () => {
+    const proposal: AgentProposal = {
+      summary: "Test",
+      lineItems: [
+        {
+          description: "Range item",
+          amount: 10000,
+          type: "escrow" as const,
+          minAmount: 5000,
+          maxAmount: 15000,
+          condition: "On completion",
+        },
+      ],
+      totalAmount: 10000,
+      currency: "gbp",
+      conditions: [],
+      expiresAt: Date.now() + 30000,
+    };
+
+    const milestones = (doc as any).generateMilestones("doc_test", proposal);
+
+    expect(milestones).toHaveLength(1);
+    expect(milestones[0].minAmount).toBe(5000);
+    expect(milestones[0].maxAmount).toBe(15000);
+    // amount should be maxAmount (for escrow hold)
+    expect(milestones[0].amount).toBe(15000);
+  });
+
+  it("should leave minAmount/maxAmount undefined for fixed-price escrow", () => {
+    const proposal: AgentProposal = {
+      summary: "Test",
+      lineItems: [
+        {
+          description: "Fixed escrow",
+          amount: 5000,
+          type: "escrow" as const,
+          condition: "Done",
+        },
+      ],
+      totalAmount: 5000,
+      currency: "gbp",
+      conditions: [],
+      expiresAt: Date.now() + 30000,
+    };
+
+    const milestones = (doc as any).generateMilestones("doc_test", proposal);
+
+    expect(milestones[0].minAmount).toBeUndefined();
+    expect(milestones[0].maxAmount).toBeUndefined();
+    expect(milestones[0].amount).toBe(5000);
+  });
+});
+
 describe("DocumentService — factor-based line items", () => {
   let doc: DocumentService;
   let mockLLM: ReturnType<typeof makeMockLLM>;

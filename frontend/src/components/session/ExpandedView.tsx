@@ -2,13 +2,18 @@ import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/stores/session-store";
 import { TranscriptColumn } from "./TranscriptColumn";
 import { TimelinePanel } from "./TimelinePanel";
-import { X } from "lucide-react";
+import { X, Mic, MicOff, Volume2, VolumeOff } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function ExpandedView() {
   const expandedView = useSessionStore((s) => s.expandedView);
   const setExpanded = useSessionStore((s) => s.setExpanded);
   const peerDisplayName = useSessionStore((s) => s.peerDisplayName);
   const displayName = useSessionStore((s) => s.displayName);
+  const micMuted = useSessionStore((s) => s.micMuted);
+  const toggleMicMute = useSessionStore((s) => s.toggleMicMute);
+  const audioRelay = useSessionStore((s) => s.audioRelay);
+  const toggleAudioRelay = useSessionStore((s) => s.toggleAudioRelay);
 
   if (!expandedView) return null;
 
@@ -19,14 +24,56 @@ export function ExpandedView() {
         <h2 className="text-base font-semibold text-text-primary">
           Session Details
         </h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setExpanded(false)}
-          className="text-text-secondary"
-        >
-          <X className="size-5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className={cn(
+              "border-separator",
+              micMuted
+                ? "border-accent-red text-accent-red"
+                : "text-text-secondary",
+            )}
+            onClick={toggleMicMute}
+            title={micMuted ? "Microphone is muted" : "Microphone is on"}
+          >
+            {micMuted ? (
+              <MicOff className="size-4" />
+            ) : (
+              <Mic className="size-4" />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={cn(
+              "border-separator",
+              audioRelay
+                ? "border-accent-green text-accent-green"
+                : "text-text-secondary",
+            )}
+            onClick={toggleAudioRelay}
+            title={
+              audioRelay
+                ? "Audio from peer is playing"
+                : "Audio from peer is muted"
+            }
+          >
+            {audioRelay ? (
+              <Volume2 className="size-4" />
+            ) : (
+              <VolumeOff className="size-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setExpanded(false)}
+            className="text-text-secondary"
+          >
+            <X className="size-5" />
+          </Button>
+        </div>
       </div>
 
       {/* Body: transcript columns + timeline */}

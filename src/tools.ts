@@ -517,6 +517,9 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
+          if (!deps.recipientAccountId) {
+            return "Error: Recipient has no Stripe account connected. They must set their Stripe Account ID in their profile.";
+          }
           const amount = Number(input.amount);
           if (!Number.isFinite(amount) || amount <= 0) {
             return "Error: amount must be a positive number";
@@ -554,6 +557,9 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
+          if (!deps.recipientAccountId) {
+            return "Error: Recipient has no Stripe account connected. They must set their Stripe Account ID in their profile.";
+          }
           const amount = Number(input.amount);
           if (!Number.isFinite(amount) || amount <= 0) {
             return "Error: amount must be a positive number";
@@ -887,15 +893,15 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             return `Milestone "${milestone.description}" is already completed`;
           }
 
-          // Inform rather than capture — verification must go through VerificationService
+          // Inform — bilateral confirmation required from both parties
           deps.panelEmitter.broadcast(deps.roomId, {
             panel: "agent",
             userId: deps.userId,
-            text: `Milestone "${milestone.description}" is ready for verification. The user should click the Verify button to start the LLM verification process.`,
+            text: `Milestone "${milestone.description}" is ready for completion. Both parties must click Confirm Complete in the contract view.`,
             timestamp: Date.now(),
           });
 
-          return `Milestone "${milestone.description}" is pending verification. Milestone completion must be initiated by the user through the Verify button, which triggers the full verification protocol.`;
+          return `Milestone "${milestone.description}" is pending bilateral confirmation. Both parties must click Confirm Complete in the contract view to release escrow.`;
         } catch (err) {
           return `Error completing milestone: ${err instanceof Error ? err.message : String(err)}`;
         }

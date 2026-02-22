@@ -11,6 +11,7 @@ interface SessionState {
   peerDisplayName: string | null;
   expandedView: boolean;
   audioRelay: boolean;
+  micMuted: boolean;
   sessionStatus: string;
 }
 
@@ -21,6 +22,7 @@ interface SessionActions {
   toggleExpanded: () => void;
   setExpanded: (open: boolean) => void;
   toggleAudioRelay: () => void;
+  toggleMicMute: () => void;
   setSessionStatus: (status: string) => void;
   showContracts: () => void;
   backToSetup: () => void;
@@ -36,6 +38,7 @@ const initialState: SessionState = {
   peerDisplayName: null,
   expandedView: false,
   audioRelay: false,
+  micMuted: false,
   sessionStatus: "Waiting...",
 };
 
@@ -61,6 +64,8 @@ export const useSessionStore = create<SessionState & SessionActions>()(
     setExpanded: (open) => set({ expandedView: open }),
 
     toggleAudioRelay: () => set((s) => ({ audioRelay: !s.audioRelay })),
+
+    toggleMicMute: () => set((s) => ({ micMuted: !s.micMuted })),
 
     setSessionStatus: (sessionStatus) => set({ sessionStatus }),
 

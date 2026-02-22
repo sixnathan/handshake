@@ -11,21 +11,26 @@ import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import {
   CheckCircle2,
   Clock,
-  Shield,
   ChevronDown,
   ChevronRight,
   FileText,
   Users,
   CreditCard,
+  Undo2,
 } from "lucide-react";
 
 interface ContractViewProps {
   doc: LegalDocument;
   milestones: Map<string, Milestone>;
   readOnly?: boolean;
+  userId?: string;
+  providerId?: string;
+  clientId?: string;
   onSign?: () => void;
-  onCompleteMilestone?: (milestoneId: string) => void;
-  onVerifyMilestone?: (milestoneId: string) => void;
+  onConfirmMilestone?: (milestoneId: string) => void;
+  onProposeMilestoneAmount?: (milestoneId: string, amount: number) => void;
+  onApproveMilestoneAmount?: (milestoneId: string) => void;
+  onReleaseEscrow?: (milestoneId: string) => void;
   alreadySigned?: boolean;
 }
 
@@ -33,9 +38,14 @@ export function ContractView({
   doc,
   milestones,
   readOnly = false,
+  userId,
+  providerId,
+  clientId,
   onSign,
-  onCompleteMilestone,
-  onVerifyMilestone,
+  onConfirmMilestone,
+  onProposeMilestoneAmount,
+  onApproveMilestoneAmount,
+  onReleaseEscrow,
   alreadySigned = false,
 }: ContractViewProps) {
   const [showRawDoc, setShowRawDoc] = useState(false);
@@ -81,8 +91,13 @@ export function ContractView({
             currency={currency}
             readOnly={readOnly}
             isFullySigned={isFullySigned}
-            onComplete={onCompleteMilestone}
-            onVerify={onVerifyMilestone}
+            userId={userId}
+            providerId={providerId}
+            clientId={clientId}
+            onConfirm={onConfirmMilestone}
+            onProposeAmount={onProposeMilestoneAmount}
+            onApproveAmount={onApproveMilestoneAmount}
+            onRelease={onReleaseEscrow}
           />
         </div>
       )}
@@ -396,17 +411,29 @@ function MilestonesSection({
   currency,
   readOnly,
   isFullySigned,
-  onComplete,
-  onVerify,
+  userId,
+  providerId,
+  clientId,
+  onConfirm,
+  onProposeAmount,
+  onApproveAmount,
+  onRelease,
 }: {
   milestones: Milestone[];
   currency: string;
   readOnly: boolean;
   isFullySigned: boolean;
-  onComplete?: (id: string) => void;
-  onVerify?: (id: string) => void;
+  userId?: string;
+  providerId?: string;
+  clientId?: string;
+  onConfirm?: (id: string) => void;
+  onProposeAmount?: (id: string, amount: number) => void;
+  onApproveAmount?: (id: string) => void;
+  onRelease?: (id: string) => void;
 }) {
-  const completed = milestones.filter((m) => m.status === "completed").length;
+  const done = milestones.filter(
+    (m) => m.status === "completed" || m.status === "released",
+  ).length;
   const total = milestones.length;
 
   return (
@@ -416,7 +443,7 @@ function MilestonesSection({
           Milestones
         </h3>
         <span className="text-xs text-text-tertiary">
-          {completed}/{total} complete
+          {done}/{total} complete
         </span>
       </div>
       {/* Progress bar */}
@@ -424,11 +451,11 @@ function MilestonesSection({
         <div
           className={cn(
             "h-full rounded-full transition-all duration-700 ease-out",
-            completed === total
+            done === total
               ? "bg-accent-green"
               : "bg-gradient-to-r from-accent-green to-accent-blue",
           )}
-          style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
+          style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
         />
       </div>
       <div className="space-y-3">
@@ -439,8 +466,13 @@ function MilestonesSection({
             currency={currency}
             readOnly={readOnly}
             isFullySigned={isFullySigned}
-            onComplete={onComplete}
-            onVerify={onVerify}
+            userId={userId}
+            providerId={providerId}
+            clientId={clientId}
+            onConfirm={onConfirm}
+            onProposeAmount={onProposeAmount}
+            onApproveAmount={onApproveAmount}
+            onRelease={onRelease}
           />
         ))}
       </div>
@@ -453,18 +485,31 @@ function MilestoneCard({
   currency,
   readOnly,
   isFullySigned,
-  onComplete,
-  onVerify,
+  userId,
+  providerId,
+  clientId,
+  onConfirm,
+  onProposeAmount,
+  onApproveAmount,
+  onRelease,
 }: {
   milestone: Milestone;
   currency: string;
   readOnly: boolean;
   isFullySigned: boolean;
-  onComplete?: (id: string) => void;
-  onVerify?: (id: string) => void;
+  userId?: string;
+  providerId?: string;
+  clientId?: string;
+  onConfirm?: (id: string) => void;
+  onProposeAmount?: (id: string, amount: number) => void;
+  onApproveAmount?: (id: string) => void;
+  onRelease?: (id: string) => void;
 }) {
+  const [proposedValue, setProposedValue] = useState("");
   const status = MILESTONE_STATUS[ms.status] ?? MILESTONE_STATUS.pending;
   const StatusIcon = status.icon;
+  const isProvider = userId === providerId;
+  const isClient = userId === clientId;
 
   return (
     <div
@@ -472,11 +517,13 @@ function MilestoneCard({
         "rounded-xl border p-4 transition-colors",
         ms.status === "completed"
           ? "border-accent-green/20 bg-accent-green/5"
-          : ms.status === "failed"
-            ? "border-accent-red/20 bg-accent-red/5"
-            : ms.status === "disputed"
-              ? "border-accent-orange/20 bg-accent-orange/5"
-              : "border-separator bg-surface-tertiary",
+          : ms.status === "released"
+            ? "border-separator bg-surface-tertiary opacity-60"
+            : ms.status === "failed"
+              ? "border-accent-red/20 bg-accent-red/5"
+              : ms.status === "disputed"
+                ? "border-accent-orange/20 bg-accent-orange/5"
+                : "border-separator bg-surface-tertiary",
       )}
     >
       {/* Title row */}
@@ -506,8 +553,18 @@ function MilestoneCard({
             {status.label}
           </span>
           <p className="mt-0.5 text-sm font-bold text-text-primary">
-            {currency}
-            {(ms.amount / 100).toFixed(2)}
+            {ms.minAmount != null && ms.maxAmount != null ? (
+              <>
+                {currency}
+                {(ms.minAmount / 100).toFixed(2)} &ndash; {currency}
+                {(ms.maxAmount / 100).toFixed(2)}
+              </>
+            ) : (
+              <>
+                {currency}
+                {(ms.amount / 100).toFixed(2)}
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -532,7 +589,7 @@ function MilestoneCard({
         </div>
       )}
 
-      {/* Completion Criteria — tickable checkboxes */}
+      {/* Completion Criteria */}
       {ms.completionCriteria && ms.completionCriteria.length > 0 && (
         <div className="mt-3">
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-text-tertiary">
@@ -561,44 +618,154 @@ function MilestoneCard({
           </div>
         )}
 
-      {/* Verification method tag */}
-      {ms.verificationMethod && (
-        <div className="mt-3 flex items-center gap-1.5">
-          <Shield className="size-3 text-text-tertiary" />
-          <span className="text-[11px] text-text-tertiary">
-            Verification: {ms.verificationMethod}
-          </span>
-        </div>
-      )}
+      {/* ── Bilateral Action Buttons ── */}
+      {!readOnly &&
+        isFullySigned &&
+        ms.status !== "completed" &&
+        ms.status !== "released" && (
+          <div className="mt-3 space-y-2">
+            {/* Confirm Complete */}
+            {(ms.status === "pending" ||
+              ms.status === "provider_confirmed" ||
+              ms.status === "client_confirmed") && (
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Provider side */}
+                {isProvider && !ms.providerConfirmed && onConfirm && (
+                  <Button
+                    size="sm"
+                    className="bg-accent-green text-white hover:bg-accent-green/90"
+                    onClick={() => onConfirm(ms.id)}
+                  >
+                    <CheckCircle2 className="mr-1.5 size-3.5" />
+                    Confirm Complete
+                  </Button>
+                )}
+                {isProvider && ms.providerConfirmed && (
+                  <span className="text-xs font-medium text-accent-green">
+                    You confirmed
+                  </span>
+                )}
+                {isProvider && ms.clientConfirmed && (
+                  <span className="text-xs text-text-tertiary">
+                    Client confirmed
+                  </span>
+                )}
 
-      {/* Action buttons */}
-      {ms.status === "pending" && isFullySigned && (
-        <div className="mt-3 flex gap-2">
-          {!readOnly && onComplete && (
-            <Button
-              size="sm"
-              className="bg-accent-green text-white hover:bg-accent-green/90"
-              onClick={() => onComplete(ms.id)}
-            >
-              <CheckCircle2 className="mr-1.5 size-3.5" />
-              Mark Complete
-            </Button>
-          )}
-          {onVerify && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
-              onClick={() => onVerify(ms.id)}
-            >
-              <Shield className="mr-1.5 size-3.5" />
-              Verify
-            </Button>
-          )}
-        </div>
-      )}
+                {/* Client side */}
+                {isClient && !ms.clientConfirmed && onConfirm && (
+                  <Button
+                    size="sm"
+                    className="bg-accent-green text-white hover:bg-accent-green/90"
+                    onClick={() => onConfirm(ms.id)}
+                  >
+                    <CheckCircle2 className="mr-1.5 size-3.5" />
+                    Confirm Complete
+                  </Button>
+                )}
+                {isClient && ms.clientConfirmed && (
+                  <span className="text-xs font-medium text-accent-green">
+                    You confirmed
+                  </span>
+                )}
+                {isClient && ms.providerConfirmed && (
+                  <span className="text-xs text-text-tertiary">
+                    Provider confirmed
+                  </span>
+                )}
+              </div>
+            )}
 
-      {/* Verification result */}
+            {/* Amount Proposal (range-priced, pending_amount) */}
+            {ms.status === "pending_amount" && (
+              <div className="space-y-2">
+                {isProvider && !ms.proposedAmount && onProposeAmount && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-tertiary">
+                      {currency}
+                      {((ms.minAmount ?? 0) / 100).toFixed(2)} &ndash;{" "}
+                      {currency}
+                      {((ms.maxAmount ?? 0) / 100).toFixed(2)}
+                    </span>
+                    <input
+                      type="number"
+                      min={((ms.minAmount ?? 0) / 100).toFixed(2)}
+                      max={((ms.maxAmount ?? 0) / 100).toFixed(2)}
+                      step="0.01"
+                      placeholder="Amount"
+                      value={proposedValue}
+                      onChange={(e) => setProposedValue(e.target.value)}
+                      className="w-24 rounded border border-separator bg-surface-primary px-2 py-1 text-sm text-text-primary"
+                    />
+                    <Button
+                      size="sm"
+                      className="bg-accent-blue text-white hover:bg-accent-blue/90"
+                      onClick={() => {
+                        const pence = Math.round(
+                          parseFloat(proposedValue) * 100,
+                        );
+                        if (!isNaN(pence) && pence > 0)
+                          onProposeAmount(ms.id, pence);
+                      }}
+                      disabled={!proposedValue}
+                    >
+                      Propose Amount
+                    </Button>
+                  </div>
+                )}
+                {isProvider && ms.proposedAmount != null && (
+                  <span className="text-xs font-medium text-accent-green">
+                    Proposed {currency}
+                    {(ms.proposedAmount / 100).toFixed(2)}
+                  </span>
+                )}
+                {isClient && ms.proposedAmount == null && (
+                  <span className="text-xs text-text-tertiary">
+                    Awaiting provider&apos;s amount proposal
+                  </span>
+                )}
+                {isClient && ms.proposedAmount != null && onApproveAmount && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">
+                      {currency}
+                      {(ms.proposedAmount / 100).toFixed(2)} proposed
+                    </span>
+                    <Button
+                      size="sm"
+                      className="bg-accent-green text-white hover:bg-accent-green/90"
+                      onClick={() => onApproveAmount(ms.id)}
+                    >
+                      <CheckCircle2 className="mr-1.5 size-3.5" />
+                      Approve
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Release Escrow (provider only) */}
+            {isProvider && onRelease && ms.status !== "pending_amount" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-accent-red/30 text-accent-red hover:bg-accent-red/10"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Are you sure? Funds will return to the payer.",
+                    )
+                  ) {
+                    onRelease(ms.id);
+                  }
+                }}
+              >
+                <Undo2 className="mr-1.5 size-3.5" />
+                Release Escrow
+              </Button>
+            )}
+          </div>
+        )}
+
+      {/* Verification result (legacy) */}
       {ms.verificationResult && (
         <VerificationResultBadge
           result={ms.verificationResult}

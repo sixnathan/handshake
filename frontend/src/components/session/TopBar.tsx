@@ -2,7 +2,14 @@ import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/stores/session-store";
 import { useDocumentStore } from "@/stores/document-store";
 import { useCallTimer } from "@/hooks/use-call-timer";
-import { ChevronDown, Volume2, VolumeOff, FileCheck } from "lucide-react";
+import {
+  ChevronDown,
+  Volume2,
+  VolumeOff,
+  Mic,
+  MicOff,
+  FileCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function TopBar() {
@@ -10,6 +17,8 @@ export function TopBar() {
   const peerUserId = useSessionStore((s) => s.peerUserId);
   const audioRelay = useSessionStore((s) => s.audioRelay);
   const toggleAudioRelay = useSessionStore((s) => s.toggleAudioRelay);
+  const micMuted = useSessionStore((s) => s.micMuted);
+  const toggleMicMute = useSessionStore((s) => s.toggleMicMute);
   const toggleExpanded = useSessionStore((s) => s.toggleExpanded);
 
   const hasDoc = useDocumentStore((s) => s.currentDocument !== null);
@@ -42,8 +51,26 @@ export function TopBar() {
         </span>
       </div>
 
-      {/* Right: audio toggle + contract + details */}
+      {/* Right: mic mute + audio toggle + contract + details */}
       <div className="flex flex-1 items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          className={cn(
+            "border-separator",
+            micMuted
+              ? "border-accent-red text-accent-red"
+              : "text-text-secondary",
+          )}
+          onClick={toggleMicMute}
+          title={micMuted ? "Microphone is muted" : "Microphone is on"}
+        >
+          {micMuted ? (
+            <MicOff className="size-4" />
+          ) : (
+            <Mic className="size-4" />
+          )}
+        </Button>
         <Button
           variant="outline"
           size="icon"

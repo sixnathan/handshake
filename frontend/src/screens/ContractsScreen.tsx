@@ -2,10 +2,8 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DocumentOverlay } from "@/components/session/DocumentOverlay";
-import { VerificationModal } from "@/components/contracts/VerificationModal";
 import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import { useSessionStore } from "@/stores/session-store";
-import { useVerificationStore } from "@/stores/verification-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
 import type { LegalDocument, Milestone } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
@@ -40,15 +38,6 @@ export function ContractsScreen() {
     setViewDoc(null);
     setExpandedHistory(null);
   }, []);
-
-  const openVerification = useVerificationStore((s) => s.openModal);
-
-  const handleVerify = useCallback(
-    (documentId: string, milestoneId: string) => {
-      openVerification(documentId, milestoneId);
-    },
-    [openVerification],
-  );
 
   return (
     <div className="flex min-h-screen flex-col bg-surface-primary">
@@ -94,7 +83,6 @@ export function ContractsScreen() {
                 key={contract.id}
                 contract={contract}
                 onViewDoc={() => setViewDoc(contract)}
-                onVerify={handleVerify}
                 historyExpanded={expandedHistory === contract.id}
                 onToggleHistory={() =>
                   setExpandedHistory((prev) =>
@@ -116,9 +104,6 @@ export function ContractsScreen() {
           onClose={() => setViewDoc(null)}
         />
       )}
-
-      {/* Verification modal */}
-      <VerificationModal panelWs={null} />
     </div>
   );
 }
@@ -151,7 +136,6 @@ function EmptyState() {
 interface ContractCardProps {
   contract: SavedContract;
   onViewDoc: () => void;
-  onVerify: (documentId: string, milestoneId: string) => void;
   historyExpanded: boolean;
   onToggleHistory: () => void;
 }
@@ -159,7 +143,6 @@ interface ContractCardProps {
 function ContractCard({
   contract,
   onViewDoc,
-  onVerify,
   historyExpanded,
   onToggleHistory,
 }: ContractCardProps) {
@@ -243,8 +226,6 @@ function ContractCard({
         <CardMilestonesBlock
           milestones={contract.milestones}
           currency={currency}
-          contractId={contract.id}
-          onVerify={onVerify}
         />
       )}
 
@@ -314,16 +295,12 @@ function ContractCard({
 function CardMilestonesBlock({
   milestones,
   currency,
-  contractId,
-  onVerify,
 }: {
   milestones: Milestone[];
   currency: string;
-  contractId: string;
-  onVerify: (documentId: string, milestoneId: string) => void;
 }) {
   const completedCount = milestones.filter(
-    (m) => m.status === "completed",
+    (m) => m.status === "completed" || m.status === "released",
   ).length;
   const totalCount = milestones.length;
 
@@ -362,11 +339,13 @@ function CardMilestonesBlock({
               "rounded-lg border p-3 transition-colors",
               ms.status === "completed"
                 ? "border-accent-green/20 bg-accent-green/5"
-                : ms.status === "failed"
-                  ? "border-accent-red/20 bg-accent-red/5"
-                  : ms.status === "disputed"
-                    ? "border-accent-orange/20 bg-accent-orange/5"
-                    : "border-separator bg-surface-tertiary",
+                : ms.status === "released"
+                  ? "border-separator bg-surface-tertiary opacity-60"
+                  : ms.status === "failed"
+                    ? "border-accent-red/20 bg-accent-red/5"
+                    : ms.status === "disputed"
+                      ? "border-accent-orange/20 bg-accent-orange/5"
+                      : "border-separator bg-surface-tertiary",
             )}
           >
             {/* Milestone header */}
@@ -453,30 +432,17 @@ function CardMilestonesBlock({
               </div>
             )}
 
-            {/* Action buttons */}
-            <div className="mt-2 flex items-center justify-between pl-6">
-              {ms.status === "pending" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
-                  onClick={() => onVerify(contractId, ms.id)}
-                >
-                  <Shield className="mr-1 size-3" />
-                  Verify
-                </Button>
-              )}
-              {ms.status !== "pending" && (
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    status.bg,
-                    status.color,
-                  )}
-                >
-                  {status.label}
-                </span>
-              )}
+            {/* Status badge */}
+            <div className="mt-2 pl-6">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  status.bg,
+                  status.color,
+                )}
+              >
+                {status.label}
+              </span>
             </div>
           </div>
         );
