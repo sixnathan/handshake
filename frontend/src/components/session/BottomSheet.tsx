@@ -164,6 +164,13 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
             </div>
           )}
 
+          {/* Waiting hint */}
+          {alreadySigned && !isFullySigned && (
+            <p className="mb-3 text-center text-xs text-text-tertiary">
+              Waiting for the other party to sign...
+            </p>
+          )}
+
           {/* Buttons */}
           <div className="flex gap-3">
             <Button
