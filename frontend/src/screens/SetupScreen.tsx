@@ -5,12 +5,17 @@ import {
   SettingsSheet,
   type SettingsValues,
 } from "@/components/setup/SettingsSheet";
-import { loadProfile, type ProfileData } from "@/hooks/use-profile";
+import {
+  loadProfile,
+  loadContracts,
+  type ProfileData,
+} from "@/hooks/use-profile";
 import { useSessionStore } from "@/stores/session-store";
 import { Settings, FileText } from "lucide-react";
 
 export function SetupScreen() {
   const showContracts = useSessionStore((s) => s.showContracts);
+  const [contractCount] = useState(() => loadContracts().length);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsValues>(() => {
     const p = loadProfile();
@@ -123,6 +128,11 @@ export function SetupScreen() {
       >
         <FileText className="mr-2 size-4" />
         My Contracts
+        {contractCount > 0 && (
+          <span className="ml-2 inline-flex size-5 items-center justify-center rounded-full bg-accent-blue text-[10px] font-bold text-white">
+            {contractCount}
+          </span>
+        )}
       </Button>
 
       {/* Settings */}

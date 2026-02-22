@@ -124,13 +124,26 @@ export function ContractsScreen() {
 }
 
 function EmptyState() {
+  const backToSetup = useSessionStore((s) => s.backToSetup);
+
   return (
     <div className="flex flex-col items-center justify-center py-20">
-      <FileText className="mb-4 size-12 text-text-tertiary" />
-      <p className="text-lg text-text-secondary">No contracts yet</p>
-      <p className="mt-1 text-sm text-text-tertiary">
-        Contracts will appear here after you complete a negotiation
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-accent-blue/10">
+        <FileText className="size-8 text-accent-blue" />
+      </div>
+      <p className="text-lg font-semibold text-text-primary">
+        No contracts yet
       </p>
+      <p className="mt-1 max-w-xs text-center text-sm text-text-tertiary">
+        Start a conversation and say the trigger word — your AI agent will
+        negotiate and create a contract automatically
+      </p>
+      <Button
+        className="mt-5 bg-accent-blue text-white hover:bg-accent-blue/90"
+        onClick={backToSetup}
+      >
+        Start a Conversation
+      </Button>
     </div>
   );
 }

@@ -177,7 +177,7 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
             </Button>
             <Button
               variant="outline"
-              className="border-separator text-text-secondary"
+              className="border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10"
               onClick={showOverlay}
             >
               View Contract
