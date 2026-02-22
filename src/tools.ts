@@ -371,7 +371,11 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
-          const negotiationId = String(input.negotiationId) as NegotiationId;
+          // Use the active negotiation — don't trust LLM-provided IDs
+          const activeNeg = deps.negotiation.getActiveNegotiation();
+          const negotiationId = activeNeg
+            ? activeNeg.id
+            : (String(input.negotiationId) as NegotiationId);
           const decision = String(input.decision);
           const reason = input.reason ? String(input.reason) : "";
 
@@ -748,11 +752,16 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
-          const negotiationId = String(input.negotiationId) as NegotiationId;
-          const negotiation = deps.negotiation.getNegotiation(negotiationId);
+          // Try LLM-provided ID, then active, then latest (for post-accept)
+          const inputId = String(input.negotiationId) as NegotiationId;
+          const negotiation =
+            deps.negotiation.getNegotiation(inputId) ??
+            deps.negotiation.getActiveNegotiation() ??
+            deps.negotiation.getLatestNegotiation();
           if (!negotiation) {
-            return `Error: Negotiation ${negotiationId} not found`;
+            return `Error: No negotiation found (tried ${inputId})`;
           }
+          const negotiationId = negotiation.id;
           if (negotiation.status !== "accepted") {
             return `Error: Negotiation status is "${negotiation.status}", must be "accepted" to generate document`;
           }

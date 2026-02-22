@@ -137,6 +137,7 @@ export interface INegotiationService extends EventEmitter {
   handleAgentMessage(message: AgentMessage): void;
   getNegotiation(id: NegotiationId): Negotiation | undefined;
   getActiveNegotiation(): Negotiation | undefined;
+  getLatestNegotiation(): Negotiation | undefined;
   destroy(): void;
 }
 

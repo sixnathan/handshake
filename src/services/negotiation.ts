@@ -186,6 +186,16 @@ export class NegotiationService
     return this.negotiations.get(this.activeNegotiationId);
   }
 
+  getLatestNegotiation(): Negotiation | undefined {
+    let latest: Negotiation | undefined;
+    for (const neg of this.negotiations.values()) {
+      if (!latest || neg.updatedAt > latest.updatedAt) {
+        latest = neg;
+      }
+    }
+    return latest;
+  }
+
   destroy(): void {
     this.clearTimers();
     this.removeAllListeners();
