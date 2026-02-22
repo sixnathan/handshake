@@ -728,7 +728,23 @@ export class RoomManager implements IRoomManager {
       return;
     }
 
-    const conversationContext = initiatorSlot.session.getTranscriptText();
+    // Gather conversation from ALL trigger detectors (they have both partials + finals)
+    // Session only has finals which may not exist yet if trigger came from a partial
+    const allTranscripts: Map<string, string> = new Map();
+    for (const slot of room.slots.values()) {
+      for (const t of slot.triggerDetector.getRecentTranscripts()) {
+        // Use latest text per speaker (partials are cumulative, last is most complete)
+        allTranscripts.set(t.speaker, t.text);
+      }
+    }
+    let conversationContext = [...allTranscripts.entries()]
+      .map(([speaker, text]) => `${speaker}: ${text}`)
+      .join("\n");
+
+    // Fallback to session transcripts if trigger detectors are empty
+    if (!conversationContext.trim()) {
+      conversationContext = initiatorSlot.session.getTranscriptText();
+    }
     console.log(
       `[room] Calling startNegotiation on agent for ${initiatorId}, context length=${conversationContext.length}`,
     );

@@ -89,6 +89,10 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
     this.startSmartDetection();
   }
 
+  getRecentTranscripts(): readonly TranscriptEntry[] {
+    return this.recentTranscripts;
+  }
+
   destroy(): void {
     this.stopSmartDetection();
     this.removeAllListeners();
