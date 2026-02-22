@@ -372,7 +372,9 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       handler: async (input) => {
         try {
           // Use the active negotiation — don't trust LLM-provided IDs
-          const activeNeg = deps.negotiation.getActiveNegotiation();
+          const activeNeg =
+            deps.negotiation.getActiveNegotiation() ??
+            deps.negotiation.getLatestNegotiation();
           const negotiationId = activeNeg
             ? activeNeg.id
             : (String(input.negotiationId) as NegotiationId);
