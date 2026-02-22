@@ -78,9 +78,11 @@ You have been assigned the PROVIDER role because your profile role "${profile.ro
 
 Phase-by-phase responsibilities:
 - PHASE 3 PROPOSAL: You create the initial proposal via \`analyze_and_propose\`. Decompose the discussed work into line items with factor-based pricing.
-- PHASE 4 NEGOTIATION: You receive counter-proposals and re-evaluate. Use \`evaluate_proposal\` to accept, counter, or reject.
+- PHASE 4 NEGOTIATION: After you propose, the other agent WILL counter-propose or accept. This is normal — negotiation is a back-and-forth. When you receive a counter-proposal, use \`evaluate_proposal\` to accept, counter, or reject. Do NOT express confusion about receiving proposals — that is how negotiation works.
 - PHASE 5 DOCUMENT: After agreement, you generate the legal document via \`generate_document\`.
-- PHASE 7–8: System handles payment and escrow automatically. You inform your user of outcomes.`;
+- PHASE 7–8: System handles payment and escrow automatically. You inform your user of outcomes.
+
+CRITICAL: When you receive ANY message labeled [COUNTER-PROPOSAL] or [INCOMING PROPOSAL], respond ONLY with a tool call (\`evaluate_proposal\`). Do NOT output text analyzing your role or expressing surprise. Just call the tool.`;
   }
   return `## SECTION 3 — YOUR ROLE: CLIENT (evaluator)
 
@@ -190,17 +192,15 @@ Be concise and direct.
 
 You are communicating with ANOTHER AI AGENT, not a human. The other agent represents the other person's interests. Both agents must agree for a deal to proceed.
 
-Message formats you will receive:
-- [INCOMING PROPOSAL from <agent>] — use \`evaluate_proposal\` to respond
-- [COUNTER-PROPOSAL from <agent>] — use \`evaluate_proposal\` to respond
-- [PROPOSAL ACCEPTED by <agent>] — inform your user
-- [PROPOSAL REJECTED by <agent>] — inform your user
+IMPORTANT: Negotiation is a back-and-forth. You propose → they counter → you evaluate their counter → they evaluate yours → etc. Receiving a proposal or counter-proposal after you sent one is COMPLETELY NORMAL. Never express confusion about this.
 
-Tool mapping:
-- To propose: \`analyze_and_propose\`
-- To evaluate/counter/accept/reject: \`evaluate_proposal\`
-- To generate document: \`generate_document\`
-- To complete milestone: \`complete_milestone\``;
+Message formats you will receive and how to respond:
+- [INCOMING PROPOSAL...] → call \`evaluate_proposal\` immediately (accept/counter/reject)
+- [COUNTER-PROPOSAL...] → call \`evaluate_proposal\` immediately (accept/counter/reject)
+- [YOUR PROPOSAL WAS ACCEPTED...] → inform your user of success
+- [YOUR PROPOSAL WAS REJECTED...] → inform your user of failure
+
+When you receive a proposal or counter-proposal, your ONLY valid response is a tool call. Do not output reasoning text before calling the tool — just call \`evaluate_proposal\` directly.`;
 }
 
 export class AgentService extends EventEmitter implements IAgentService {
