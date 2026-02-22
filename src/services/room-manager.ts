@@ -647,73 +647,22 @@ export class RoomManager implements IRoomManager {
     userId: UserId,
     event: TriggerEvent,
   ): void {
-    // Use the actual SPEAKER for dual-keyword coordination, not the detector owner.
-    // Transcripts are fed to ALL detectors, so one person saying "handshake"
-    // fires multiple detectors with different userIds.
-    const speakerId = event.speakerId as UserId;
-
     console.log(
-      `[room] handleUserTrigger: detector=${userId}, speaker=${speakerId}, type=${event.type}, confidence=${event.confidence}, room=${room.id}`,
+      `[room] handleUserTrigger: user=${userId}, speaker=${event.speakerId}, type=${event.type}, room=${room.id}`,
     );
     // Guard: if negotiation already active or trigger in progress, ignore
     if (room.negotiation?.getActiveNegotiation() || room.triggerInProgress) {
       console.log(
-        `[room] Trigger from ${speakerId} ignored — negotiation already active or trigger in progress`,
+        `[room] Trigger ignored — negotiation already active or trigger in progress`,
       );
       return;
     }
 
-    // Dual-keyword coordination: both users must SAY the keyword within window
-    if (room.pendingTrigger === null) {
-      // First speaker — store and wait for the other
-      room.pendingTrigger = { userId: speakerId, timestamp: Date.now() };
-      room.pendingTriggerTimeout = setTimeout(() => {
-        console.log(
-          `[room] Dual-keyword timeout — ${speakerId} said trigger but no match within ${this.DUAL_KEYWORD_TIMEOUT_MS}ms`,
-        );
-        room.pendingTrigger = null;
-        room.pendingTriggerTimeout = null;
-        // Reset ALL trigger detectors so users can say it again
-        for (const slot of room.slots.values()) {
-          slot.triggerDetector.reset();
-        }
-      }, this.DUAL_KEYWORD_TIMEOUT_MS);
-
-      this.panelEmitter.sendToUser(speakerId, {
-        panel: "agent",
-        userId: "system",
-        text: `Waiting for other party to say "${this.config.trigger.keyword}"...`,
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
-    // Same SPEAKER said it again (possibly from a different detector) — ignore
-    if (room.pendingTrigger.userId === speakerId) {
-      console.log(
-        `[room] Duplicate trigger from speaker ${speakerId} ignored — already pending`,
-      );
-      return;
-    }
-
-    // Different speaker within window — dual-keyword confirmed!
-    const elapsed = Date.now() - room.pendingTrigger.timestamp;
-    if (elapsed > this.DUAL_KEYWORD_TIMEOUT_MS) {
-      // Expired — treat this as a new first trigger
-      room.pendingTrigger = { userId: speakerId, timestamp: Date.now() };
-      return;
-    }
-
-    // Clear pending state
-    if (room.pendingTriggerTimeout) {
-      clearTimeout(room.pendingTriggerTimeout);
-    }
-    room.pendingTrigger = null;
-    room.pendingTriggerTimeout = null;
+    // Single-keyword trigger: first person to say "handshake" activates both agents
     room.triggerInProgress = true;
 
     console.log(
-      `[room] Dual-keyword confirmed in room ${room.id} (${elapsed}ms apart)`,
+      `[room] Trigger confirmed in room ${room.id} — speaker ${event.speakerId} said "${this.config.trigger.keyword}"`,
     );
 
     this.handleTrigger(room, {
