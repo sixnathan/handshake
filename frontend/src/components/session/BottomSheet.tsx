@@ -164,6 +164,18 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
           )}
         </div>
 
+        {/* Signing progress bar */}
+        {!isFullySigned && (
+          <div className="mb-4 h-1 overflow-hidden rounded-full bg-separator">
+            <div
+              className="h-full rounded-full bg-accent-green transition-all duration-500"
+              style={{
+                width: `${totalParties > 0 ? (sigCount / totalParties) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        )}
+
         {/* Buttons */}
         <div className="flex gap-3">
           <Button

@@ -23,7 +23,7 @@ export function CriterionCheckbox({
     >
       <span
         className={cn(
-          "mt-0.5 flex shrink-0 items-center justify-center rounded border",
+          "mt-0.5 flex shrink-0 items-center justify-center rounded border transition-colors",
           boxSize,
           checked
             ? "border-accent-green bg-accent-green text-white"
@@ -44,7 +44,7 @@ export function CriterionCheckbox({
       </span>
       <span
         className={cn(
-          "text-xs",
+          "text-xs leading-relaxed transition-colors",
           checked ? "text-text-tertiary line-through" : "text-text-secondary",
         )}
       >
