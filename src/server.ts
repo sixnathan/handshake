@@ -101,6 +101,36 @@ export function startWebServer(config: AppConfig): void {
       return;
     }
 
+    // GET /api/escrow-status?id=pi_xxx — check PaymentIntent status from Stripe
+    const parsedUrl = new URL(
+      req.url ?? "/",
+      `http://localhost:${config.port}`,
+    );
+    if (parsedUrl.pathname === "/api/escrow-status" && req.method === "GET") {
+      const piId = parsedUrl.searchParams.get("id");
+      if (!piId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "id query param required" }));
+        return;
+      }
+      try {
+        const pi = await stripe.paymentIntents.retrieve(piId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            status: pi.status,
+            captured: pi.status === "succeeded",
+            amount_received: pi.amount_received,
+          }),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: message }));
+      }
+      return;
+    }
+
     // Static files
     const served = await serveStatic(req.url ?? "/", res);
     if (served) return;

@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -59,9 +59,51 @@ export function DocumentOverlay({
   const handleOpenChange = externalDoc ? () => onClose?.() : hideOverlay;
 
   // For external docs, build milestones from the doc itself
-  const milestones = externalDoc
+  const [syncedMilestones, setSyncedMilestones] = useState<Map<
+    string,
+    import("@/stores/document-store").Milestone
+  > | null>(null);
+  const baseMilestones = externalDoc
     ? new Map((externalDoc.milestones ?? []).map((ms) => [ms.id, ms]))
     : storeMilestones;
+  const milestones = syncedMilestones ?? baseMilestones;
+
+  // Sync escrow status from Stripe when viewing a saved contract
+  useEffect(() => {
+    if (!externalDoc) return;
+    const msArr = externalDoc.milestones ?? [];
+    const pending = msArr.filter(
+      (ms) =>
+        ms.escrowHoldId &&
+        ms.status !== "completed" &&
+        ms.status !== "released",
+    );
+    if (pending.length === 0) return;
+
+    for (const ms of pending) {
+      fetch(`/api/escrow-status?id=${encodeURIComponent(ms.escrowHoldId!)}`)
+        .then((r) => r.json())
+        .then((result: { captured?: boolean }) => {
+          if (result.captured) {
+            updateMilestoneStatus(externalDoc.id, ms.id, "completed");
+            setSyncedMilestones((prev) => {
+              const base = prev ?? new Map(msArr.map((m) => [m.id, m]));
+              const updated = new Map(base);
+              const existing = updated.get(ms.id);
+              if (existing) {
+                updated.set(ms.id, {
+                  ...existing,
+                  status: "completed",
+                  completedAt: Date.now(),
+                });
+              }
+              return updated;
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [externalDoc]);
 
   // Payment events: from saved contract or live store
   const paymentEvents = externalDoc
