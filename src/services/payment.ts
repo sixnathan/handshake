@@ -32,17 +32,12 @@ export class PaymentService implements IPaymentService {
         transfer_data: {
           destination: request.recipientAccountId,
         },
+        payment_method: "pm_card_visa",
         confirm: true,
       };
 
       if (request.payerCustomerId) {
         params.customer = request.payerCustomerId;
-        params.payment_method = "pm_card_visa";
-      } else {
-        params.automatic_payment_methods = {
-          enabled: true,
-          allow_redirects: "never",
-        };
       }
 
       const idempotencyKey = `pay_${request.recipientAccountId}_${request.amount}_${Date.now()}`;
@@ -75,17 +70,12 @@ export class PaymentService implements IPaymentService {
         destination: request.recipientAccountId,
       },
       capture_method: "manual",
+      payment_method: "pm_card_visa",
       confirm: true,
     };
 
     if (request.payerCustomerId) {
       escrowParams.customer = request.payerCustomerId;
-      escrowParams.payment_method = "pm_card_visa";
-    } else {
-      escrowParams.automatic_payment_methods = {
-        enabled: true,
-        allow_redirects: "never",
-      };
     }
 
     const escrowIdempotencyKey = `escrow_${request.recipientAccountId}_${request.amount}_${Date.now()}`;
