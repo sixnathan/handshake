@@ -44,7 +44,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-separator bg-surface-secondary p-5",
+        "overflow-hidden rounded-xl border border-separator bg-surface-secondary p-5",
         className,
       )}
     >
