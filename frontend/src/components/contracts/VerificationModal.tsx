@@ -174,7 +174,9 @@ function ResultDisplay({
   return (
     <div className="space-y-4">
       <div className={cn("rounded-lg border p-4", cfg.bg, cfg.border)}>
-        <p className={cn("text-lg font-bold", cfg.color)}>{cfg.label}</p>
+        <p className={cn("text-lg font-bold uppercase", cfg.color)}>
+          {cfg.label}
+        </p>
         {result.verifiedAmount != null && (
           <p className="mt-1 text-sm text-text-secondary">
             Verified amount: {currency}
