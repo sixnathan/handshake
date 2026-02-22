@@ -194,7 +194,7 @@ export function ContractView({
           })}
 
           {/* ── Client Checkbox to Release Escrow ── */}
-          {isFullySigned && !readOnly && milestonesArray.length > 0 && (
+          {isFullySigned && milestonesArray.length > 0 && (
             <div className="mt-3">
               {milestonesArray.map((ms) => {
                 const isDone =
@@ -217,7 +217,7 @@ export function ContractView({
                     <input
                       type="checkbox"
                       checked={isDone}
-                      disabled={!canConfirm || readOnly}
+                      disabled={!canConfirm}
                       onChange={() => handleConfirmEscrow(ms.id)}
                       className="mt-0.5 size-5 accent-green-500"
                     />

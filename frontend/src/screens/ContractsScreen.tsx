@@ -2,12 +2,12 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DocumentOverlay } from "@/components/session/DocumentOverlay";
-import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
+
 import { useSessionStore } from "@/stores/session-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
-import type { Milestone, SavedContract } from "@/stores/document-store";
+import type { SavedContract } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
-import { MILESTONE_STATUS } from "@/lib/milestone-config";
+
 import { LineItemRow } from "@/components/contracts/LineItemRow";
 import {
   ArrowLeft,
@@ -15,8 +15,6 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
-  Clock,
-  Shield,
 } from "lucide-react";
 
 export function ContractsScreen() {
@@ -210,21 +208,6 @@ function ContractCard({
         </div>
       )}
 
-      {/* Factor summary */}
-      {contract.terms.factorSummary && (
-        <p className="mt-3 rounded-lg border border-accent-blue/20 bg-accent-blue/5 px-3 py-2 text-xs leading-relaxed text-text-secondary">
-          {contract.terms.factorSummary}
-        </p>
-      )}
-
-      {/* Milestones */}
-      {contract.milestones && contract.milestones.length > 0 && (
-        <CardMilestonesBlock
-          milestones={contract.milestones}
-          currency={currency}
-        />
-      )}
-
       {/* Actions row */}
       <div className="mt-4 flex items-center gap-3 border-t border-separator pt-4">
         <Button
@@ -284,165 +267,6 @@ function ContractCard({
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function CardMilestonesBlock({
-  milestones,
-  currency,
-}: {
-  milestones: Milestone[];
-  currency: string;
-}) {
-  const completedCount = milestones.filter(
-    (m) => m.status === "completed" || m.status === "released",
-  ).length;
-  const totalCount = milestones.length;
-
-  return (
-    <div className="mt-4 space-y-2.5">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
-          Milestones
-        </p>
-        <span className="text-[11px] text-text-tertiary">
-          {completedCount}/{totalCount} complete
-        </span>
-      </div>
-      {/* Progress bar */}
-      <div className="h-1 overflow-hidden rounded-full bg-separator">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all duration-700 ease-out",
-            completedCount === totalCount
-              ? "bg-accent-green"
-              : "bg-gradient-to-r from-accent-green to-accent-blue",
-          )}
-          style={{
-            width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`,
-          }}
-        />
-      </div>
-      {milestones.map((ms) => {
-        const status = MILESTONE_STATUS[ms.status] ?? MILESTONE_STATUS.pending;
-        const StatusIcon = status.icon;
-
-        return (
-          <div
-            key={ms.id}
-            className={cn(
-              "rounded-lg border p-3 transition-colors",
-              ms.status === "completed"
-                ? "border-accent-green/20 bg-accent-green/5"
-                : ms.status === "released"
-                  ? "border-separator bg-surface-tertiary opacity-60"
-                  : ms.status === "failed"
-                    ? "border-accent-red/20 bg-accent-red/5"
-                    : ms.status === "disputed"
-                      ? "border-accent-orange/20 bg-accent-orange/5"
-                      : "border-separator bg-surface-tertiary",
-            )}
-          >
-            {/* Milestone header */}
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2">
-                <StatusIcon
-                  className={cn("mt-0.5 size-4 shrink-0", status.color)}
-                />
-                <div>
-                  <p className="text-sm font-medium text-text-primary">
-                    {ms.description}
-                  </p>
-                  {ms.expectedTimeline && (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-text-tertiary">
-                      <Clock className="size-3" />
-                      {ms.expectedTimeline}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <span className={cn("text-sm font-semibold", status.color)}>
-                {currency}
-                {(ms.amount / 100).toFixed(2)}
-              </span>
-            </div>
-
-            {/* Completion criteria checkboxes */}
-            {ms.completionCriteria && ms.completionCriteria.length > 0 && (
-              <div className="mt-2 space-y-1 pl-6">
-                {ms.completionCriteria.map((c, i) => (
-                  <CriterionCheckbox
-                    key={i}
-                    label={c}
-                    checked={ms.status === "completed"}
-                    size="sm"
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Fallback: plain condition as checkbox */}
-            {(!ms.completionCriteria || ms.completionCriteria.length === 0) &&
-              ms.condition && (
-                <div className="mt-2 pl-6">
-                  <CriterionCheckbox
-                    label={ms.condition}
-                    checked={ms.status === "completed"}
-                    size="sm"
-                  />
-                </div>
-              )}
-
-            {/* Verification method */}
-            {ms.verificationMethod && (
-              <div className="mt-2 flex items-center gap-1.5 pl-6">
-                <Shield className="size-3 text-text-tertiary" />
-                <span className="text-[10px] text-text-tertiary">
-                  {ms.verificationMethod}
-                </span>
-              </div>
-            )}
-
-            {/* Verification result (compact) */}
-            {ms.verificationResult && (
-              <div
-                className={cn(
-                  "ml-6 mt-2 rounded border px-2 py-1.5 text-[11px]",
-                  ms.verificationResult.outcome === "passed"
-                    ? "border-accent-green/30 bg-accent-green/5 text-accent-green"
-                    : ms.verificationResult.outcome === "failed"
-                      ? "border-accent-red/30 bg-accent-red/5 text-accent-red"
-                      : "border-accent-orange/30 bg-accent-orange/5 text-accent-orange",
-                )}
-              >
-                <span className="font-bold uppercase">
-                  {ms.verificationResult.outcome}
-                </span>
-                {ms.verificationResult.verifiedAmount !== undefined && (
-                  <span className="ml-2 text-text-secondary">
-                    {currency}
-                    {(ms.verificationResult.verifiedAmount / 100).toFixed(2)}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Status badge */}
-            <div className="mt-2 pl-6">
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                  status.bg,
-                  status.color,
-                )}
-              >
-                {status.label}
-              </span>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

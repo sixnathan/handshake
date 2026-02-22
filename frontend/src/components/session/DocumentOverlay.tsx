@@ -8,6 +8,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDocumentStore, type SavedContract } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
+import { loadProfile } from "@/hooks/use-profile";
 import { ContractView } from "@/components/contracts/ContractView";
 
 interface DocumentOverlayProps {
@@ -29,7 +30,21 @@ export function DocumentOverlay({
   const addSignature = useDocumentStore((s) => s.addSignature);
   const storeMilestones = useDocumentStore((s) => s.milestones);
   const storePaymentEvents = useDocumentStore((s) => s.paymentEvents);
-  const userId = useSessionStore((s) => s.userId);
+  const sessionUserId = useSessionStore((s) => s.userId);
+
+  // For saved contracts viewed from pre-join screen, resolve userId by
+  // matching the profile display name against the contract's parties.
+  const userId =
+    sessionUserId ??
+    (() => {
+      if (!externalDoc) return null;
+      const profile = loadProfile();
+      if (!profile.displayName) return null;
+      const party = externalDoc.parties.find(
+        (p) => p.name.toLowerCase() === profile.displayName!.toLowerCase(),
+      );
+      return party?.userId ?? null;
+    })();
   const signedRef = useRef(false);
 
   const doc = externalDoc ?? storeDoc;
