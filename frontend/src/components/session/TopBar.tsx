@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export function TopBar() {
+  const roomId = useSessionStore((s) => s.roomId);
   const peerDisplayName = useSessionStore((s) => s.peerDisplayName);
   const peerUserId = useSessionStore((s) => s.peerUserId);
   const audioRelay = useSessionStore((s) => s.audioRelay);
@@ -31,8 +32,11 @@ export function TopBar() {
 
   return (
     <div className="flex items-center border-b border-separator bg-surface-secondary px-5 py-3">
-      {/* Left: status dot + peer name */}
+      {/* Left: room ID + status dot + peer name */}
       <div className="flex flex-1 items-center gap-3">
+        <span className="rounded bg-surface-tertiary px-1.5 py-0.5 font-mono text-xs text-text-tertiary">
+          {roomId}
+        </span>
         <div
           className={cn(
             "size-2.5 shrink-0 rounded-full",
