@@ -13,7 +13,7 @@ export class AnthropicProvider implements ILLMProvider {
   private readonly client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({ apiKey, timeout: 60_000 });
   }
 
   async createMessage(params: LLMCreateParams): Promise<LLMResponse> {

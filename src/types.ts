@@ -5,6 +5,7 @@ export type NegotiationId = string;
 export type RoomId = string;
 export type DocumentId = string;
 export type MilestoneId = string;
+export type VerificationId = string;
 
 // ── Agent Profile ──────────────────────────
 
@@ -23,6 +24,12 @@ export interface AgentProfile {
   preferences: AgentPreferences;
   stripeAccountId?: string;
   monzoAccessToken?: string;
+  trade?: string;
+  experienceYears?: number;
+  certifications?: string[];
+  typicalRateRange?: { min: number; max: number; unit: "hour" | "day" | "job" };
+  serviceArea?: string;
+  contextDocuments?: string[]; // text content from uploaded docs
 }
 
 // ── User & Peer ─────────────────────────────
@@ -100,6 +107,14 @@ export interface KeywordState {
   detectedAt: number;
 }
 
+// ── Price Factors ──────────────────────────
+
+export interface PriceFactor {
+  name: string;
+  description: string;
+  impact: "increases" | "decreases" | "determines";
+}
+
 // ── Agreement & Negotiation ─────────────────
 
 export type NegotiationStatus =
@@ -117,6 +132,9 @@ export interface LineItem {
   amount: number; // pence
   type: "immediate" | "escrow" | "conditional";
   condition?: string;
+  minAmount?: number; // pence — lower bound of range
+  maxAmount?: number; // pence — upper bound (escrow holds this)
+  factors?: PriceFactor[];
 }
 
 export interface AgentProposal {
@@ -126,6 +144,7 @@ export interface AgentProposal {
   currency: string;
   conditions: string[];
   expiresAt: number;
+  factorSummary?: string; // plain English explanation of how factors determine price
 }
 
 export interface NegotiationRound {
@@ -154,7 +173,12 @@ export interface Negotiation {
 
 // ── Milestone ─────────────────────────────
 
-export type MilestoneStatus = "pending" | "completed";
+export type MilestoneStatus =
+  | "pending"
+  | "verifying"
+  | "completed"
+  | "failed"
+  | "disputed";
 
 export interface Milestone {
   id: MilestoneId;
@@ -167,6 +191,55 @@ export interface Milestone {
   escrowHoldId?: string;
   completedAt?: number;
   completedBy?: UserId;
+  verificationId?: VerificationId;
+  verificationResult?: VerificationResult;
+}
+
+// ── Verification ──────────────────────────
+
+export type VerificationStatus =
+  | "pending"
+  | "in_progress"
+  | "passed"
+  | "failed"
+  | "disputed";
+
+export interface VerificationEvidence {
+  type:
+    | "phone_call"
+    | "self_attestation"
+    | "payment_history"
+    | "factor_assessment";
+  description: string;
+  result: "confirmed" | "denied" | "inconclusive" | "not_applicable";
+  details: string;
+  timestamp: number;
+}
+
+export interface VerificationResult {
+  id: VerificationId;
+  milestoneId: MilestoneId;
+  status: VerificationStatus;
+  evidence: VerificationEvidence[];
+  reasoning: string;
+  recommendedAmount?: number; // pence — for range-priced items
+  capturedAmount?: number; // pence — actual amount captured
+}
+
+export interface PhoneVerificationRequest {
+  phoneNumber: string;
+  contactName: string;
+  milestoneDescription: string;
+  condition: string;
+  questions: string[];
+}
+
+export interface PhoneVerificationResult {
+  success: boolean;
+  callId?: string;
+  transcript?: string;
+  confirmed: boolean;
+  details: string;
 }
 
 // ── Legal Document ─────────────────────────
@@ -228,6 +301,7 @@ export type PanelMessage =
   | { panel: "agent"; userId: UserId; text: string; timestamp: number }
   | { panel: "negotiation"; negotiation: Negotiation }
   | { panel: "document"; document: LegalDocument }
+  | { panel: "milestone"; milestone: Milestone }
   | {
       panel: "execution";
       negotiationId: NegotiationId;
@@ -236,20 +310,50 @@ export type PanelMessage =
       details?: string;
     }
   | {
+      panel: "payment_receipt";
+      amount: number;
+      currency: string;
+      recipient: string;
+      status: "processing" | "succeeded" | "failed";
+      paymentIntentId: string;
+      description: string;
+    }
+  | {
       panel: "status";
       roomId: RoomId;
       users: UserId[];
       sessionStatus: SessionStatus;
     }
-  | { panel: "error"; message: string };
+  | { panel: "error"; message: string }
+  | {
+      panel: "verification";
+      verificationId: VerificationId;
+      milestoneId: MilestoneId;
+      step: string;
+      status: VerificationStatus;
+      details?: string;
+      result?: VerificationResult;
+    };
 
 // ── Client Messages (browser → server) ─────
 
 export type ClientMessage =
   | { type: "set_profile"; profile: AgentProfile }
   | { type: "sign_document"; documentId: DocumentId }
+  | {
+      type: "complete_milestone";
+      milestoneId: MilestoneId;
+      documentId: DocumentId;
+    }
   | { type: "set_trigger_keyword"; keyword: string }
-  | { type: "join_room"; roomId: RoomId };
+  | { type: "join_room"; roomId: RoomId }
+  | {
+      type: "verify_milestone";
+      documentId: DocumentId;
+      milestoneId: MilestoneId;
+      phoneNumber?: string;
+      contactName?: string;
+    };
 
 // ── Payment ─────────────────────────────────
 
@@ -258,6 +362,7 @@ export interface PaymentRequest {
   currency: string;
   description: string;
   recipientAccountId: string; // Stripe Connect account ID
+  payerCustomerId?: string; // Stripe Customer ID (for demo: pre-created with saved payment method)
 }
 
 export interface PaymentResult {
@@ -313,10 +418,12 @@ export interface AppConfig {
     apiKey: string;
     region: string;
     language: string;
+    phoneNumberId?: string;
   };
   stripe: {
     secretKey: string;
     platformAccountId: string;
+    customerIdForDemo?: string;
   };
   llm: {
     provider: "anthropic" | "openrouter";

@@ -26,6 +26,11 @@ import type {
   MonzoTransaction,
   SessionStatus,
   AppConfig,
+  PriceFactor,
+  Milestone,
+  MilestoneStatus,
+  MilestoneId,
+  DocumentId,
 } from "../src/types.js";
 
 describe("Type System Verification", () => {
@@ -358,6 +363,196 @@ describe("Type System Verification", () => {
         "fully_signed",
       ];
       expect(statuses).toHaveLength(3);
+    });
+  });
+
+  describe("PriceFactor impact values", () => {
+    it("should accept all valid impact values", () => {
+      const increases: PriceFactor = {
+        name: "Complexity",
+        description: "How complex the work is",
+        impact: "increases",
+      };
+      const decreases: PriceFactor = {
+        name: "Bulk discount",
+        description: "Volume discount applied",
+        impact: "decreases",
+      };
+      const determines: PriceFactor = {
+        name: "Material type",
+        description: "Type of material determines base price",
+        impact: "determines",
+      };
+
+      expect(increases.impact).toBe("increases");
+      expect(decreases.impact).toBe("decreases");
+      expect(determines.impact).toBe("determines");
+    });
+  });
+
+  describe("Milestone status transitions", () => {
+    it("should construct milestones with each valid status", () => {
+      const pending: Milestone = {
+        id: "ms_1" as MilestoneId,
+        documentId: "doc_1" as DocumentId,
+        lineItemIndex: 0,
+        description: "Complete repair",
+        amount: 5000,
+        condition: "Work finished",
+        status: "pending",
+      };
+      expect(pending.status).toBe("pending");
+
+      const completed: Milestone = {
+        ...pending,
+        status: "completed",
+        completedAt: Date.now(),
+        completedBy: "alice",
+      };
+      expect(completed.status).toBe("completed");
+      expect(completed.completedAt).toBeDefined();
+      expect(completed.completedBy).toBe("alice");
+    });
+
+    it("should cover all MilestoneStatus values", () => {
+      const statuses: MilestoneStatus[] = ["pending", "completed"];
+      expect(statuses).toHaveLength(2);
+    });
+  });
+
+  describe("AgentProfile with full professionalContext", () => {
+    it("should accept all optional professional fields", () => {
+      const profile: AgentProfile = {
+        displayName: "Expert Plumber",
+        role: "plumber",
+        customInstructions: "Prioritize safety",
+        preferences: {
+          maxAutoApproveAmount: 10000,
+          preferredCurrency: "gbp",
+          escrowPreference: "above_threshold",
+          escrowThreshold: 5000,
+          negotiationStyle: "balanced",
+        },
+        trade: "Plumbing",
+        experienceYears: 15,
+        certifications: ["Gas Safe", "City & Guilds Level 3"],
+        typicalRateRange: { min: 5000, max: 15000, unit: "day" },
+        serviceArea: "London, UK",
+        contextDocuments: ["Insurance certificate content...", "Rate card..."],
+      };
+
+      expect(profile.trade).toBe("Plumbing");
+      expect(profile.experienceYears).toBe(15);
+      expect(profile.certifications).toHaveLength(2);
+      expect(profile.certifications![0]).toBe("Gas Safe");
+      expect(profile.typicalRateRange!.min).toBe(5000);
+      expect(profile.typicalRateRange!.max).toBe(15000);
+      expect(profile.typicalRateRange!.unit).toBe("day");
+      expect(profile.serviceArea).toBe("London, UK");
+      expect(profile.contextDocuments).toHaveLength(2);
+    });
+  });
+
+  describe("PanelMessage: payment_receipt and milestone variants", () => {
+    it("should construct payment_receipt panel message", () => {
+      const msg: PanelMessage = {
+        panel: "payment_receipt",
+        amount: 15000,
+        currency: "gbp",
+        recipient: "Bob the Plumber",
+        status: "succeeded",
+        paymentIntentId: "pi_abc123",
+        description: "Boiler repair payment",
+      };
+      if (msg.panel === "payment_receipt") {
+        expect(msg.amount).toBe(15000);
+        expect(msg.currency).toBe("gbp");
+        expect(msg.recipient).toBe("Bob the Plumber");
+        expect(msg.status).toBe("succeeded");
+        expect(msg.paymentIntentId).toBe("pi_abc123");
+        expect(msg.description).toBe("Boiler repair payment");
+      }
+    });
+
+    it("should construct milestone panel message", () => {
+      const msg: PanelMessage = {
+        panel: "milestone",
+        milestone: {
+          id: "ms_1" as MilestoneId,
+          documentId: "doc_1" as DocumentId,
+          lineItemIndex: 0,
+          description: "Complete repair work",
+          amount: 8000,
+          condition: "All pipes replaced",
+          status: "pending",
+        },
+      };
+      if (msg.panel === "milestone") {
+        expect(msg.milestone.id).toBe("ms_1");
+        expect(msg.milestone.status).toBe("pending");
+        expect(msg.milestone.amount).toBe(8000);
+      }
+    });
+
+    it("should cover all payment_receipt statuses", () => {
+      const statuses: Array<"processing" | "succeeded" | "failed"> = [
+        "processing",
+        "succeeded",
+        "failed",
+      ];
+      expect(statuses).toHaveLength(3);
+    });
+  });
+
+  describe("ClientMessage complete_milestone variant", () => {
+    it("should construct complete_milestone message with required fields", () => {
+      const msg: ClientMessage = {
+        type: "complete_milestone",
+        milestoneId: "ms_123" as MilestoneId,
+        documentId: "doc_456" as DocumentId,
+      };
+      if (msg.type === "complete_milestone") {
+        expect(msg.milestoneId).toBe("ms_123");
+        expect(msg.documentId).toBe("doc_456");
+      }
+    });
+  });
+
+  describe("LineItem with factors", () => {
+    it("should construct LineItem with PriceFactor array", () => {
+      const item: LineItem = {
+        description: "Boiler repair",
+        amount: 10000,
+        type: "escrow",
+        condition: "On completion",
+        minAmount: 5000,
+        maxAmount: 15000,
+        factors: [
+          {
+            name: "Pipe complexity",
+            description: "Number and accessibility of pipes",
+            impact: "increases",
+          },
+          {
+            name: "Parts quality",
+            description: "Standard vs premium parts",
+            impact: "determines",
+          },
+          {
+            name: "Bulk purchase",
+            description: "Discount for ordering multiple items",
+            impact: "decreases",
+          },
+        ],
+      };
+
+      expect(item.factors).toHaveLength(3);
+      expect(item.factors![0].name).toBe("Pipe complexity");
+      expect(item.factors![0].impact).toBe("increases");
+      expect(item.factors![1].impact).toBe("determines");
+      expect(item.factors![2].impact).toBe("decreases");
+      expect(item.minAmount).toBe(5000);
+      expect(item.maxAmount).toBe(15000);
     });
   });
 });

@@ -289,3 +289,73 @@ describe("OpenRouterProvider Module", () => {
     expect(toolMsg.content).toBe("4");
   });
 });
+
+describe("OpenRouterProvider Error Handling", () => {
+  let provider: OpenRouterProvider;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    provider = new OpenRouterProvider("test-api-key");
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should include status code in error for 429 rate limit", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => "Rate limited",
+    });
+
+    await expect(
+      provider.createMessage({
+        model: "m",
+        maxTokens: 100,
+        system: "s",
+        messages: [{ role: "user", content: "test" }],
+      }),
+    ).rejects.toThrow("429");
+  });
+
+  it("should propagate network timeout error", async () => {
+    fetchSpy.mockRejectedValue(new Error("Network timeout"));
+
+    await expect(
+      provider.createMessage({
+        model: "m",
+        maxTokens: 100,
+        system: "s",
+        messages: [{ role: "user", content: "test" }],
+      }),
+    ).rejects.toThrow("Network timeout");
+  });
+
+  it("should treat empty tool_calls array as text response", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: { content: "Hello", tool_calls: [] },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+    });
+
+    const response = await provider.createMessage({
+      model: "m",
+      maxTokens: 100,
+      system: "s",
+      messages: [{ role: "user", content: "test" }],
+    });
+
+    expect(response.content).toEqual([{ type: "text", text: "Hello" }]);
+    expect(response.stopReason).toBe("end_turn");
+  });
+});

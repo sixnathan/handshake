@@ -1,5 +1,5 @@
 [build]
-buildCommand = "npm ci"
+buildCommand = "npm ci && cd frontend && npm ci && npm run build"
 
 [deploy]
 startCommand = "npx tsx src/web.ts"

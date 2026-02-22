@@ -9,6 +9,9 @@ import type {
   EscrowHold,
   LegalDocument,
   DocumentParty,
+  LineItem,
+  Milestone,
+  MilestoneId,
   MonzoBalance,
   MonzoTransaction,
   Negotiation,
@@ -21,6 +24,7 @@ import type {
   TranscriptEntry,
   TriggerEvent,
   UserId,
+  VerificationResult,
   WordTimestamp,
 } from "./types.js";
 
@@ -114,6 +118,7 @@ export interface IAgentService extends EventEmitter {
     conversationContext: string,
   ): Promise<void>;
   receiveAgentMessage(message: AgentMessage): Promise<void>;
+  injectInstruction(content: string): Promise<void>;
 }
 
 // ── INegotiationService ─────────────────────
@@ -150,6 +155,7 @@ export interface IDocumentService extends EventEmitter {
   signDocument(documentId: DocumentId, userId: UserId): void;
   isFullySigned(documentId: DocumentId): boolean;
   getDocument(documentId: DocumentId): LegalDocument | undefined;
+  updateMilestones(documentId: DocumentId, milestones: Milestone[]): void;
 }
 
 // ── IPaymentService ─────────────────────────
@@ -206,6 +212,23 @@ export interface IRoomManager {
   handleClientMessage(userId: UserId, message: ClientMessage): void;
   getRoomUsers(roomId: RoomId): UserId[];
   destroy(): void;
+}
+
+// ── IVerificationService ───────────────────
+// Events: "verification:started"   → { verificationId, milestoneId }
+//         "verification:update"    → { verificationId, milestoneId, step, details }
+//         "verification:completed" → VerificationResult
+
+export interface IVerificationService extends EventEmitter {
+  verifyMilestone(
+    document: LegalDocument,
+    milestone: Milestone,
+    lineItem: LineItem,
+    requestedBy: UserId,
+    phoneNumber?: string,
+    contactName?: string,
+  ): Promise<VerificationResult>;
+  getResult(verificationId: string): VerificationResult | undefined;
 }
 
 // ── ToolDefinition ──────────────────────────

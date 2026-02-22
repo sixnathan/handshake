@@ -2,6 +2,8 @@ import { EventEmitter } from "eventemitter3";
 import type { AudioChunk } from "../types.js";
 import type { IAudioService } from "../interfaces.js";
 
+const MAX_BUFFER_BYTES = 16000 * 2 * 30; // 30 seconds of 16kHz 16-bit PCM
+
 export class AudioService extends EventEmitter implements IAudioService {
   private buffer: Buffer = Buffer.alloc(0);
   private chunkInterval: ReturnType<typeof setInterval> | null = null;
@@ -20,6 +22,11 @@ export class AudioService extends EventEmitter implements IAudioService {
 
   feedRawAudio(raw: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, raw]);
+
+    // Prevent unbounded memory growth if transcription is down
+    if (this.buffer.length > MAX_BUFFER_BYTES) {
+      this.buffer = this.buffer.subarray(this.buffer.length - MAX_BUFFER_BYTES);
+    }
 
     if (this.chunkInterval === null && this.chunkSizeBytes > 0) {
       this.startInterval();

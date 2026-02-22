@@ -174,4 +174,142 @@ describe("Server Integration (real server)", () => {
     expect(connected).toBe(true);
     ws.close();
   });
+
+  it("should handle binary message on audio WebSocket without error", async () => {
+    // Audio sockets require a user to be in the room (via joinRoom).
+    // Without joining, registerAudioSocket closes with 4004.
+    // First connect a panel socket to set up the room, then join via client message.
+    const panelWs = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=audio-test&user=audio-user`,
+    );
+    await new Promise<void>((resolve, reject) => {
+      panelWs.on("open", () => resolve());
+      panelWs.on("error", () => reject(new Error("panel connection failed")));
+      setTimeout(() => reject(new Error("timeout")), 5000);
+    });
+
+    // Join the room via client message
+    panelWs.send(
+      JSON.stringify({
+        type: "join_room",
+        roomId: "audio-test",
+      }),
+    );
+
+    // Wait for join to be processed
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Now connect the audio socket
+    const ws = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/audio?room=audio-test&user=audio-user`,
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", () => reject(new Error("connection failed")));
+      setTimeout(() => reject(new Error("timeout")), 5000);
+    });
+
+    // Send binary audio data
+    ws.send(Buffer.alloc(1600));
+
+    // Verify connection stays open (no error close)
+    const stayedOpen = await new Promise<boolean>((resolve) => {
+      ws.on("close", () => resolve(false));
+      setTimeout(() => resolve(true), 500);
+    });
+
+    expect(stayedOpen).toBe(true);
+    ws.close();
+    panelWs.close();
+  });
+
+  it("should handle JSON message on panel WebSocket", async () => {
+    const ws = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=test&user=test3`,
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", () => reject(new Error("connection failed")));
+      setTimeout(() => reject(new Error("timeout")), 5000);
+    });
+
+    // Send a valid JSON client message
+    ws.send(JSON.stringify({ type: "set_trigger_keyword", keyword: "deal" }));
+
+    // Verify connection stays open
+    const stayedOpen = await new Promise<boolean>((resolve) => {
+      ws.on("close", () => resolve(false));
+      setTimeout(() => resolve(true), 500);
+    });
+
+    expect(stayedOpen).toBe(true);
+    ws.close();
+  });
+
+  it("should handle invalid JSON on panel WebSocket without crashing", async () => {
+    const ws = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=test&user=test4`,
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", () => reject(new Error("connection failed")));
+      setTimeout(() => reject(new Error("timeout")), 5000);
+    });
+
+    // Send invalid JSON
+    ws.send("not valid json");
+
+    // Verify connection stays open (server handles parse error gracefully)
+    const stayedOpen = await new Promise<boolean>((resolve) => {
+      ws.on("close", () => resolve(false));
+      setTimeout(() => resolve(true), 500);
+    });
+
+    expect(stayedOpen).toBe(true);
+    ws.close();
+  });
+
+  it("should support multiple rooms on the same server instance", async () => {
+    const wsA = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=room-a&user=userA`,
+    );
+    const wsB = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=room-b&user=userB`,
+    );
+
+    const [connA, connB] = await Promise.all([
+      new Promise<boolean>((resolve) => {
+        wsA.on("open", () => resolve(true));
+        wsA.on("error", () => resolve(false));
+        setTimeout(() => resolve(false), 5000);
+      }),
+      new Promise<boolean>((resolve) => {
+        wsB.on("open", () => resolve(true));
+        wsB.on("error", () => resolve(false));
+        setTimeout(() => resolve(false), 5000);
+      }),
+    ]);
+
+    expect(connA).toBe(true);
+    expect(connB).toBe(true);
+    wsA.close();
+    wsB.close();
+  });
+
+  it("should reject WebSocket with invalid room parameter format", async () => {
+    const ws = new WebSocket(
+      `ws://localhost:${TEST_PORT}/ws/panels?room=${encodeURIComponent("room@#$%")}&user=validuser`,
+    );
+
+    const closeCode = await new Promise<number>((resolve) => {
+      ws.on("close", (code) => resolve(code));
+      ws.on("error", () => resolve(-1));
+      setTimeout(() => resolve(-1), 5000);
+    });
+
+    expect(closeCode).toBe(4000);
+  });
 });

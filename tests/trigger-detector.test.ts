@@ -313,3 +313,130 @@ describe("TriggerDetector Smart Detection", () => {
     vi.useRealTimers();
   });
 });
+
+describe("TriggerDetector Additional Edge Cases", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("should call setInterval with 10000ms when smartDetectionEnabled is true", () => {
+    vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(global, "setInterval");
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: true,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
+    });
+
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 10000);
+
+    detector.destroy();
+  });
+
+  it("should not trigger on partial keyword match", () => {
+    vi.useFakeTimers();
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
+    });
+
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    // "chrip" is a partial match of "chripbbbly" — should NOT trigger
+    detector.feedTranscript(makeEntry("alice", "chrip"));
+    expect(events.length).toBe(0);
+
+    detector.destroy();
+  });
+
+  it("should prune transcript window to MAX_TRANSCRIPTS (100) entries", () => {
+    vi.useFakeTimers();
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
+    });
+
+    // Feed 101 entries
+    for (let i = 0; i < 101; i++) {
+      detector.feedTranscript(makeEntry("alice", `message ${i}`));
+    }
+
+    const transcripts = (detector as any).recentTranscripts;
+    expect(transcripts.length).toBe(100);
+
+    detector.destroy();
+  });
+
+  it("should not trigger when a different speaker says the keyword (speaker ID filtering)", () => {
+    vi.useFakeTimers();
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: mockLLMProvider as any,
+      llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
+    });
+
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    // Bob says the keyword — should NOT trigger for Alice's detector
+    detector.feedTranscript(makeEntry("bob", "chripbbbly"));
+    expect(events.length).toBe(0);
+
+    // Alice says the keyword — should trigger
+    detector.feedTranscript(makeEntry("alice", "chripbbbly"));
+    expect(events.length).toBe(1);
+    expect(events[0].speakerId).toBe("alice");
+
+    detector.destroy();
+  });
+
+  it("should not crash when LLM rejects during smart detection", async () => {
+    vi.useRealTimers();
+
+    const errorProvider = {
+      createMessage: vi.fn().mockRejectedValue(new Error("LLM API failure")),
+    };
+
+    const detector = new TriggerDetector({
+      keyword: "chripbbbly",
+      smartDetectionEnabled: false,
+      llmProvider: errorProvider as any,
+      llmModel: "test-model",
+      userId: "alice",
+      displayName: "Alice",
+    });
+
+    const events: TriggerEvent[] = [];
+    detector.on("triggered", (e) => events.push(e));
+
+    detector.feedTranscript(makeEntry("alice", "I will pay you £500"));
+
+    // Call runSmartDetection directly — should not throw
+    await (detector as any).runSmartDetection();
+
+    expect(events.length).toBe(0);
+    expect((detector as any).smartDetectionRunning).toBe(false);
+
+    detector.destroy();
+  });
+});

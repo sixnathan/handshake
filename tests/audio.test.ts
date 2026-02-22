@@ -128,3 +128,87 @@ describe("AudioService Module", () => {
     expect(chunks[0].timestamp).toBeTypeOf("number");
   });
 });
+
+describe("AudioService Edge Cases", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should discard oldest bytes when buffer exceeds MAX_BUFFER_BYTES (960000)", () => {
+    const audio = new AudioService();
+    const chunks: AudioChunk[] = [];
+    audio.on("chunk", (c) => chunks.push(c));
+
+    audio.setSampleRate(16000);
+    // Feed 960001 bytes — 1 byte over the 30s cap
+    audio.feedRawAudio(Buffer.alloc(960001));
+
+    // Buffer should have been capped to 960000 bytes
+    // chunkSizeBytes at 16kHz = 16000 * 0.25 * 2 = 8000
+    // 960000 / 8000 = 120 chunks
+    vi.advanceTimersByTime(250);
+    expect(chunks.length).toBe(120);
+
+    audio.destroy();
+  });
+
+  it("should resume emitting chunks after destroy and re-creation", () => {
+    // First cycle
+    const audio1 = new AudioService();
+    const chunks1: AudioChunk[] = [];
+    audio1.on("chunk", (c) => chunks1.push(c));
+
+    audio1.setSampleRate(16000);
+    audio1.feedRawAudio(Buffer.alloc(8000));
+    vi.advanceTimersByTime(250);
+    expect(chunks1.length).toBe(1);
+
+    audio1.destroy();
+
+    // Second cycle — new instance
+    const audio2 = new AudioService();
+    const chunks2: AudioChunk[] = [];
+    audio2.on("chunk", (c) => chunks2.push(c));
+
+    audio2.setSampleRate(16000);
+    audio2.feedRawAudio(Buffer.alloc(8000));
+    vi.advanceTimersByTime(250);
+    expect(chunks2.length).toBe(1);
+
+    audio2.destroy();
+  });
+
+  it("should not crash on zero-length feedRawAudio", () => {
+    const audio = new AudioService();
+    const chunks: AudioChunk[] = [];
+    audio.on("chunk", (c) => chunks.push(c));
+
+    audio.setSampleRate(16000);
+    audio.feedRawAudio(Buffer.alloc(0));
+
+    vi.advanceTimersByTime(250);
+    expect(chunks.length).toBe(0);
+
+    audio.destroy();
+  });
+
+  it("should emit 0 chunks after destroy even with data in buffer", () => {
+    const audio = new AudioService();
+    const chunks: AudioChunk[] = [];
+    audio.on("chunk", (c) => chunks.push(c));
+
+    audio.setSampleRate(16000);
+    // Feed 10 chunks worth of data
+    audio.feedRawAudio(Buffer.alloc(8000 * 10));
+
+    // Destroy immediately before timer fires
+    audio.destroy();
+
+    vi.advanceTimersByTime(500);
+    expect(chunks.length).toBe(0);
+  });
+});

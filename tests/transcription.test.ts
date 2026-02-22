@@ -263,3 +263,324 @@ describe("TranscriptionService Module", () => {
     });
   });
 });
+
+describe("Malformed JSON message handling", () => {
+  let service: TranscriptionService;
+
+  beforeEach(() => {
+    service = new TranscriptionService({
+      apiKey: "test-key",
+      region: "us",
+      language: "en",
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+    vi.restoreAllMocks();
+  });
+
+  it("should not crash when receiving non-JSON data", async () => {
+    await service.start();
+
+    const ws = (service as any).ws;
+    // Sending plain text that is not valid JSON
+    ws.emit("message", "this is not json at all");
+    // No crash = success
+  });
+
+  it("should not emit any events for malformed JSON", async () => {
+    await service.start();
+
+    const partials: PartialTranscript[] = [];
+    const finals: FinalTranscript[] = [];
+    service.on("partial", (p) => partials.push(p));
+    service.on("final", (f) => finals.push(f));
+
+    const ws = (service as any).ws;
+    ws.emit("message", "{broken json!!!}");
+    ws.emit("message", "not json");
+    ws.emit("message", "<xml>nope</xml>");
+
+    expect(partials).toHaveLength(0);
+    expect(finals).toHaveLength(0);
+  });
+
+  it("should log a warning for malformed JSON", async () => {
+    await service.start();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const ws = (service as any).ws;
+    ws.emit("message", "{{invalid}}");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Received malformed JSON, ignoring"),
+    );
+  });
+
+  it("should continue processing valid messages after malformed ones", async () => {
+    await service.start();
+
+    const finals: FinalTranscript[] = [];
+    service.on("final", (f) => finals.push(f));
+
+    const ws = (service as any).ws;
+
+    // First: malformed
+    ws.emit("message", "not json");
+
+    // Then: valid
+    ws.emit(
+      "message",
+      JSON.stringify({
+        message_type: "committed_transcript",
+        text: "valid after malformed",
+      }),
+    );
+
+    expect(finals).toHaveLength(1);
+    expect(finals[0].text).toBe("valid after malformed");
+  });
+});
+
+describe("Reconnect backoff timing", () => {
+  let service: TranscriptionService;
+
+  beforeEach(() => {
+    service = new TranscriptionService({
+      apiKey: "test-key",
+      region: "us",
+      language: "en",
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+    vi.restoreAllMocks();
+  });
+
+  it("should compute correct exponential backoff delays for attempts 0-5", () => {
+    const expectedDelays = [2000, 4000, 8000, 16000, 30000, 30000];
+    for (let attempt = 0; attempt <= 5; attempt++) {
+      const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
+      expect(delay).toBe(expectedDelays[attempt]);
+    }
+  });
+
+  it("should cap backoff at 30000ms regardless of attempt count", () => {
+    const highAttempts = [6, 7, 8, 9];
+    for (const attempt of highAttempts) {
+      const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
+      expect(delay).toBe(30000);
+    }
+  });
+
+  it("should schedule reconnect with correct delay via setTimeout", async () => {
+    vi.useFakeTimers();
+    await service.start();
+
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+
+    // Force running state and trigger scheduleReconnect
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 0;
+    (service as any).scheduleReconnect();
+
+    // First attempt (attempt=0): delay = 2000 * 2^0 = 2000ms
+    const lastCall =
+      setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1];
+    expect(lastCall[1]).toBe(2000);
+
+    // Second call (attempt is now 1): delay = 2000 * 2^1 = 4000ms
+    (service as any).scheduleReconnect();
+    const secondCall =
+      setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1];
+    expect(secondCall[1]).toBe(4000);
+
+    vi.useRealTimers();
+  });
+
+  it("should increment reconnectAttempts after each scheduleReconnect call", async () => {
+    vi.useFakeTimers();
+    await service.start();
+
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 0;
+
+    (service as any).scheduleReconnect();
+    expect((service as any).reconnectAttempts).toBe(1);
+
+    (service as any).scheduleReconnect();
+    expect((service as any).reconnectAttempts).toBe(2);
+
+    (service as any).scheduleReconnect();
+    expect((service as any).reconnectAttempts).toBe(3);
+
+    vi.useRealTimers();
+  });
+});
+
+describe("Max reconnect attempts", () => {
+  let service: TranscriptionService;
+
+  beforeEach(() => {
+    service = new TranscriptionService({
+      apiKey: "test-key",
+      region: "us",
+      language: "en",
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+    vi.restoreAllMocks();
+  });
+
+  it("should not schedule reconnect after 10 attempts", async () => {
+    vi.useFakeTimers();
+    await service.start();
+
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+    const callCountBefore = setTimeoutSpy.mock.calls.length;
+
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 10;
+
+    (service as any).scheduleReconnect();
+
+    // No new setTimeout should have been scheduled
+    expect(setTimeoutSpy.mock.calls.length).toBe(callCountBefore);
+
+    vi.useRealTimers();
+  });
+
+  it("should log an error when max attempts reached", async () => {
+    await service.start();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 10;
+
+    (service as any).scheduleReconnect();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Max reconnect attempts reached, giving up"),
+    );
+  });
+
+  it("should allow reconnect at attempt 9 but not at attempt 10", async () => {
+    vi.useFakeTimers();
+    await service.start();
+
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+
+    // Attempt 9 should still schedule
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 9;
+    const callsBefore = setTimeoutSpy.mock.calls.length;
+    (service as any).scheduleReconnect();
+    expect(setTimeoutSpy.mock.calls.length).toBe(callsBefore + 1);
+
+    // Now reconnectAttempts is 10, next call should NOT schedule
+    const callsAfterNine = setTimeoutSpy.mock.calls.length;
+    (service as any).scheduleReconnect();
+    expect(setTimeoutSpy.mock.calls.length).toBe(callsAfterNine);
+
+    vi.useRealTimers();
+  });
+
+  it("should not reconnect when not running even if attempts remain", async () => {
+    vi.useFakeTimers();
+    await service.start();
+    await service.stop(); // sets running = false
+
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+    const callsBefore = setTimeoutSpy.mock.calls.length;
+
+    (service as any).reconnectAttempts = 0;
+    (service as any).scheduleReconnect();
+
+    // Should not schedule because running is false
+    expect(setTimeoutSpy.mock.calls.length).toBe(callsBefore);
+
+    vi.useRealTimers();
+  });
+});
+
+describe("TranscriptionService Additional Edge Cases", () => {
+  let service: TranscriptionService;
+
+  beforeEach(() => {
+    service = new TranscriptionService({
+      apiKey: "test-key",
+      region: "us",
+      language: "en",
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+    vi.restoreAllMocks();
+  });
+
+  it("should correctly base64-encode a single-byte audio buffer", async () => {
+    await service.start();
+
+    const chunk = {
+      buffer: Buffer.from([0xff]),
+      sampleRate: 16000,
+      timestamp: Date.now(),
+    };
+
+    service.feedAudio(chunk);
+
+    const ws = (service as any).ws;
+    expect(ws.send).toHaveBeenCalledOnce();
+
+    const sent = JSON.parse(ws.send.mock.calls[0][0]);
+    expect(sent.message_type).toBe("input_audio_chunk");
+    expect(sent.audio_base_64).toBe(Buffer.from([0xff]).toString("base64"));
+  });
+
+  it("should handle 100 rapid consecutive feedAudio calls", async () => {
+    await service.start();
+
+    for (let i = 0; i < 100; i++) {
+      service.feedAudio({
+        buffer: Buffer.from([i & 0xff]),
+        sampleRate: 16000,
+        timestamp: Date.now(),
+      });
+    }
+
+    const ws = (service as any).ws;
+    expect(ws.send).toHaveBeenCalledTimes(100);
+  });
+
+  it("should clear reconnect timer on stop during reconnect backoff", async () => {
+    vi.useFakeTimers();
+    await service.start();
+
+    // Set up a reconnect scenario
+    (service as any).running = true;
+    (service as any).reconnectAttempts = 0;
+    (service as any).scheduleReconnect();
+
+    // reconnectTimer should now be set
+    expect((service as any).reconnectTimer).not.toBeNull();
+
+    // Stop immediately — should clear the reconnect timer
+    await service.stop();
+
+    expect((service as any).reconnectTimer).toBeNull();
+    expect((service as any).running).toBe(false);
+
+    // Advance well past the backoff delay — no reconnection should happen
+    const startSpy = vi.spyOn(service, "start");
+    vi.advanceTimersByTime(60000);
+
+    expect(startSpy).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+});

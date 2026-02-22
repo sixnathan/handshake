@@ -2,7 +2,6 @@ import { EventEmitter } from "eventemitter3";
 import type {
   TranscriptEntry,
   TriggerEvent,
-  KeywordState,
   DetectedTerm,
   UserId,
 } from "../types.js";
@@ -50,12 +49,10 @@ If there's no financial agreement being discussed, respond with:
 
 export class TriggerDetector extends EventEmitter implements ITriggerDetector {
   private keyword: string;
-  private keywordStates: KeywordState[] = [];
   private recentTranscripts: TranscriptEntry[] = [];
   private smartDetectionTimer: ReturnType<typeof setInterval> | null = null;
   private lastSmartCheckIndex = 0;
   private triggered = false;
-  private readonly KEYWORD_WINDOW_MS = 30_000;
   private readonly SMART_CHECK_INTERVAL_MS = 10_000;
   private readonly SMART_CONFIDENCE_THRESHOLD = 0.7;
   private smartDetectionRunning = false;
@@ -95,22 +92,16 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
     }
 
     if (entry.isFinal && entry.text.toLowerCase().includes(this.keyword)) {
-      this.keywordStates.push({
-        userId: entry.speaker,
-        detectedAt: Date.now(),
-      });
       this.checkKeywordTrigger(entry.speaker);
     }
   }
 
   setKeyword(keyword: string): void {
     this.keyword = keyword.toLowerCase();
-    this.keywordStates = [];
   }
 
   reset(): void {
     this.triggered = false;
-    this.keywordStates = [];
     this.recentTranscripts = [];
     this.lastSmartCheckIndex = 0;
   }

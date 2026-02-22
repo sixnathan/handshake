@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/* ── Light mode variables ────────────────────── */
+:root {
+  --surface-primary: #ffffff;
+  --surface-secondary: #f2f2f7;
+  --surface-tertiary: #ffffff;
+  --hig-text-primary: #000000;
+  --hig-text-secondary: rgba(60, 60, 67, 0.6);
+  --hig-text-tertiary: rgba(60, 60, 67, 0.3);
+  --hig-separator: #c6c6c8;
+  --hig-blue: #007aff;
+  --hig-green: #34c759;
+  --hig-red: #ff3b30;
+  --hig-orange: #ff9500;
+  --hig-purple: #af52de;
+  --hig-gray-1: #8e8e93;
+  --hig-gray-2: #aeaeb2;
+  --hig-gray-3: #c7c7cc;
+  --hig-gray-4: #d1d1d6;
+  --hig-gray-5: #e5e5ea;
+  --hig-gray-6: #f2f2f7;
+}
+
+/* ── Dark mode variables ─────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-primary: #000000;
+    --surface-secondary: #1c1c1e;
+    --surface-tertiary: #2c2c2e;
+    --hig-text-primary: #ffffff;
+    --hig-text-secondary: rgba(235, 235, 245, 0.6);
+    --hig-text-tertiary: rgba(235, 235, 245, 0.3);
+    --hig-separator: #38383a;
+    --hig-blue: #0a84ff;
+    --hig-green: #30d158;
+    --hig-red: #ff453a;
+    --hig-orange: #ff9f0a;
+    --hig-purple: #bf5af2;
+    --hig-gray-1: #8e8e93;
+    --hig-gray-2: #636366;
+    --hig-gray-3: #48484a;
+    --hig-gray-4: #3a3a3c;
+    --hig-gray-5: #2c2c2e;
+    --hig-gray-6: #1c1c1e;
+  }
+}
+
+/* ── Tailwind theme tokens ───────────────────── */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+    Roboto, sans-serif;
+
+  /* Apple HIG colors (resolve from CSS vars for light/dark) */
+  --color-surface-primary: var(--surface-primary);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-tertiary: var(--surface-tertiary);
+  --color-text-primary: var(--hig-text-primary);
+  --color-text-secondary: var(--hig-text-secondary);
+  --color-text-tertiary: var(--hig-text-tertiary);
+  --color-separator: var(--hig-separator);
+  --color-accent-blue: var(--hig-blue);
+  --color-accent-green: var(--hig-green);
+  --color-accent-red: var(--hig-red);
+  --color-accent-orange: var(--hig-orange);
+  --color-accent-purple: var(--hig-purple);
+  --color-gray-1: var(--hig-gray-1);
+  --color-gray-2: var(--hig-gray-2);
+  --color-gray-3: var(--hig-gray-3);
+  --color-gray-4: var(--hig-gray-4);
+  --color-gray-5: var(--hig-gray-5);
+  --color-gray-6: var(--hig-gray-6);
+
+  /* shadcn required tokens — mapped to Apple HIG */
+  --color-background: var(--surface-primary);
+  --color-foreground: var(--hig-text-primary);
+  --color-card: var(--surface-secondary);
+  --color-card-foreground: var(--hig-text-primary);
+  --color-popover: var(--surface-secondary);
+  --color-popover-foreground: var(--hig-text-primary);
+  --color-primary: var(--hig-blue);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface-tertiary);
+  --color-secondary-foreground: var(--hig-text-primary);
+  --color-muted: var(--surface-secondary);
+  --color-muted-foreground: var(--hig-text-secondary);
+  --color-accent: var(--surface-tertiary);
+  --color-accent-foreground: var(--hig-text-primary);
+  --color-destructive: var(--hig-red);
+  --color-border: var(--hig-separator);
+  --color-input: var(--hig-separator);
+  --color-ring: var(--hig-blue);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}

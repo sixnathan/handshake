@@ -3,21 +3,35 @@ import type {
   IPaymentService,
   IMonzoService,
   INegotiationService,
+  IDocumentService,
+  ISessionService,
   IPanelEmitter,
   IInProcessPeer,
 } from "./interfaces.js";
-import type { AgentProposal, UserId, NegotiationId } from "./types.js";
+import type {
+  AgentProposal,
+  PriceFactor,
+  UserId,
+  NegotiationId,
+  DocumentId,
+  Milestone,
+  MilestoneId,
+} from "./types.js";
 
 export interface ToolDependencies {
   payment: IPaymentService;
   monzo: IMonzoService | null;
   negotiation: INegotiationService;
+  document: IDocumentService;
+  session: ISessionService;
   panelEmitter: IPanelEmitter;
   peer: IInProcessPeer;
   userId: UserId;
   otherUserId: UserId;
   displayName: string;
+  otherDisplayName: string;
   recipientAccountId: string;
+  payerCustomerId?: string;
   roomId: string;
 }
 
@@ -41,7 +55,11 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
               type: "object",
               properties: {
                 description: { type: "string" },
-                amount: { type: "number", description: "Amount in pence" },
+                amount: {
+                  type: "number",
+                  description:
+                    "Amount in pence. For range-priced items, use maxAmount as the escrow hold.",
+                },
                 type: {
                   type: "string",
                   enum: ["immediate", "escrow", "conditional"],
@@ -49,6 +67,35 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
                 condition: {
                   type: "string",
                   description: "Condition for escrow/conditional items",
+                },
+                minAmount: {
+                  type: "number",
+                  description: "Lower bound in pence for range-priced items",
+                },
+                maxAmount: {
+                  type: "number",
+                  description:
+                    "Upper bound in pence for range-priced items (escrow holds this)",
+                },
+                factors: {
+                  type: "array",
+                  description:
+                    "Observable factors that determine where the final price lands in the range",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      description: {
+                        type: "string",
+                        description: "What this factor measures",
+                      },
+                      impact: {
+                        type: "string",
+                        enum: ["increases", "decreases", "determines"],
+                      },
+                    },
+                    required: ["name", "description", "impact"],
+                  },
                 },
               },
               required: ["description", "amount", "type"],
@@ -63,21 +110,50 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             items: { type: "string" },
             description: "General conditions for the agreement",
           },
+          factorSummary: {
+            type: "string",
+            description:
+              "Plain English explanation of how factors determine the final price",
+          },
         },
         required: ["summary", "lineItems", "currency"],
       },
       handler: async (input) => {
         try {
+          if (!Array.isArray(input.lineItems) || input.lineItems.length === 0) {
+            return "Error: lineItems must be a non-empty array";
+          }
           const lineItems = (
             input.lineItems as Array<Record<string, unknown>>
-          ).map((li) => ({
-            description: String(li.description),
-            amount: Number(li.amount),
-            type: String(li.type) as "immediate" | "escrow" | "conditional",
-            condition: li.condition ? String(li.condition) : undefined,
-          }));
+          ).map((li) => {
+            const factors = Array.isArray(li.factors)
+              ? (li.factors as Array<Record<string, unknown>>).map(
+                  (f): PriceFactor => ({
+                    name: String(f.name),
+                    description: String(f.description),
+                    impact: String(f.impact) as PriceFactor["impact"],
+                  }),
+                )
+              : undefined;
 
-          const totalAmount = lineItems.reduce((sum, li) => sum + li.amount, 0);
+            return {
+              description: String(li.description),
+              amount: Number(li.amount),
+              type: String(li.type) as "immediate" | "escrow" | "conditional",
+              condition: li.condition ? String(li.condition) : undefined,
+              minAmount:
+                li.minAmount !== undefined ? Number(li.minAmount) : undefined,
+              maxAmount:
+                li.maxAmount !== undefined ? Number(li.maxAmount) : undefined,
+              factors: factors && factors.length > 0 ? factors : undefined,
+            };
+          });
+
+          // Use maxAmount when available for total (what gets escrowed)
+          const totalAmount = lineItems.reduce(
+            (sum, li) => sum + (li.maxAmount ?? li.amount),
+            0,
+          );
 
           const proposal: AgentProposal = {
             summary: String(input.summary),
@@ -88,6 +164,9 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
               ? (input.conditions as string[]).map(String)
               : [],
             expiresAt: Date.now() + 30_000,
+            factorSummary: input.factorSummary
+              ? String(input.factorSummary)
+              : undefined,
           };
 
           const negotiation = deps.negotiation.createNegotiation(
@@ -103,7 +182,18 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
             fromAgent: deps.userId,
           });
 
-          return `Proposal created and sent to other agent: ${negotiation.id}\nSummary: ${proposal.summary}\nTotal: £${(totalAmount / 100).toFixed(2)}\nLine items: ${lineItems.length}`;
+          const rangeInfo = lineItems
+            .filter(
+              (li) => li.minAmount !== undefined && li.maxAmount !== undefined,
+            )
+            .map(
+              (li) =>
+                `${li.description}: £${(li.minAmount! / 100).toFixed(2)}–£${(li.maxAmount! / 100).toFixed(2)}`,
+            );
+          const rangeStr =
+            rangeInfo.length > 0 ? `\nRanges: ${rangeInfo.join(", ")}` : "";
+
+          return `Proposal created and sent to other agent: ${negotiation.id}\nSummary: ${proposal.summary}\nTotal (max): £${(totalAmount / 100).toFixed(2)}\nLine items: ${lineItems.length}${rangeStr}`;
         } catch (err) {
           return `Error creating proposal: ${err instanceof Error ? err.message : String(err)}`;
         }
@@ -144,12 +234,30 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
                       enum: ["immediate", "escrow", "conditional"],
                     },
                     condition: { type: "string" },
+                    minAmount: { type: "number" },
+                    maxAmount: { type: "number" },
+                    factors: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          description: { type: "string" },
+                          impact: {
+                            type: "string",
+                            enum: ["increases", "decreases", "determines"],
+                          },
+                        },
+                        required: ["name", "description", "impact"],
+                      },
+                    },
                   },
                   required: ["description", "amount", "type"],
                 },
               },
               currency: { type: "string" },
               conditions: { type: "array", items: { type: "string" } },
+              factorSummary: { type: "string" },
             },
           },
         },
@@ -194,22 +302,52 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
 
               const lineItems = (
                 cp.lineItems as Array<Record<string, unknown>>
-              ).map((li) => ({
-                description: String(li.description),
-                amount: Number(li.amount),
-                type: String(li.type) as "immediate" | "escrow" | "conditional",
-                condition: li.condition ? String(li.condition) : undefined,
-              }));
+              ).map((li) => {
+                const factors = Array.isArray(li.factors)
+                  ? (li.factors as Array<Record<string, unknown>>).map(
+                      (f): PriceFactor => ({
+                        name: String(f.name),
+                        description: String(f.description),
+                        impact: String(f.impact) as PriceFactor["impact"],
+                      }),
+                    )
+                  : undefined;
+
+                return {
+                  description: String(li.description),
+                  amount: Number(li.amount),
+                  type: String(li.type) as
+                    | "immediate"
+                    | "escrow"
+                    | "conditional",
+                  condition: li.condition ? String(li.condition) : undefined,
+                  minAmount:
+                    li.minAmount !== undefined
+                      ? Number(li.minAmount)
+                      : undefined,
+                  maxAmount:
+                    li.maxAmount !== undefined
+                      ? Number(li.maxAmount)
+                      : undefined,
+                  factors: factors && factors.length > 0 ? factors : undefined,
+                };
+              });
 
               const counterProposal: AgentProposal = {
                 summary: String(cp.summary ?? "Counter-proposal"),
                 lineItems,
-                totalAmount: lineItems.reduce((sum, li) => sum + li.amount, 0),
+                totalAmount: lineItems.reduce(
+                  (sum, li) => sum + (li.maxAmount ?? li.amount),
+                  0,
+                ),
                 currency: String(cp.currency ?? "gbp"),
                 conditions: Array.isArray(cp.conditions)
                   ? (cp.conditions as string[]).map(String)
                   : [],
                 expiresAt: Date.now() + 30_000,
+                factorSummary: cp.factorSummary
+                  ? String(cp.factorSummary)
+                  : undefined,
               };
 
               const counterMsg = {
@@ -248,14 +386,19 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
+          const amount = Number(input.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            return "Error: amount must be a positive number";
+          }
           const result = await deps.payment.executePayment({
-            amount: Number(input.amount),
+            amount,
             currency: String(input.currency),
             description: String(input.description),
             recipientAccountId: deps.recipientAccountId,
+            payerCustomerId: deps.payerCustomerId,
           });
           if (result.success) {
-            return `Payment successful: £${(Number(input.amount) / 100).toFixed(2)} sent. ID: ${result.paymentIntentId}`;
+            return `Payment successful: £${(amount / 100).toFixed(2)} sent. ID: ${result.paymentIntentId}`;
           }
           return `Payment failed: ${result.error}`;
         } catch (err) {
@@ -280,11 +423,16 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
       },
       handler: async (input) => {
         try {
+          const amount = Number(input.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            return "Error: amount must be a positive number";
+          }
           const hold = await deps.payment.createEscrowHold({
-            amount: Number(input.amount),
+            amount,
             currency: String(input.currency),
             description: String(input.description),
             recipientAccountId: deps.recipientAccountId,
+            payerCustomerId: deps.payerCustomerId,
           });
           return `Escrow hold created: £${(hold.amount / 100).toFixed(2)} held. Hold ID: ${hold.holdId}`;
         } catch (err) {
@@ -314,6 +462,12 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
         try {
           const amount =
             input.amount !== undefined ? Number(input.amount) : undefined;
+          if (
+            amount !== undefined &&
+            (!Number.isFinite(amount) || amount <= 0)
+          ) {
+            return "Error: amount must be a positive number";
+          }
           const result = await deps.payment.captureEscrow(
             String(input.holdId),
             amount,
@@ -431,6 +585,168 @@ export function buildTools(deps: ToolDependencies): ToolDefinition[] {
           return "Message sent to user panel.";
         } catch (err) {
           return `Error sending message: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+    },
+
+    // Tool 10: generate_document
+    {
+      name: "generate_document",
+      description:
+        "Generate a legal agreement document from an accepted negotiation. Call this after negotiation is agreed to create a binding document with milestones for escrow/conditional items.",
+      parameters: {
+        type: "object",
+        properties: {
+          negotiationId: {
+            type: "string",
+            description: "The ID of the accepted negotiation",
+          },
+          additionalNotes: {
+            type: "string",
+            description:
+              "Optional notes to include in the document (e.g., special conditions discussed verbally)",
+          },
+        },
+        required: ["negotiationId"],
+      },
+      handler: async (input) => {
+        try {
+          const negotiationId = String(input.negotiationId) as NegotiationId;
+          const negotiation = deps.negotiation.getNegotiation(negotiationId);
+          if (!negotiation) {
+            return `Error: Negotiation ${negotiationId} not found`;
+          }
+          if (negotiation.status !== "accepted") {
+            return `Error: Negotiation status is "${negotiation.status}", must be "accepted" to generate document`;
+          }
+
+          const parties = [
+            {
+              userId: deps.userId,
+              name: deps.displayName,
+              role: "Party A",
+            },
+            {
+              userId: deps.otherUserId,
+              name: deps.otherDisplayName,
+              role: "Party B",
+            },
+          ];
+
+          const conversationContext = deps.session.getTranscriptText();
+          const additionalNotes = input.additionalNotes
+            ? `\n\nADDITIONAL NOTES FROM AGENT:\n${String(input.additionalNotes)}`
+            : "";
+
+          const doc = await deps.document.generateDocument(
+            negotiation,
+            negotiation.currentProposal,
+            parties,
+            conversationContext + additionalNotes,
+          );
+
+          // Extract milestones from escrow/conditional line items
+          const milestones: Milestone[] = negotiation.currentProposal.lineItems
+            .map((li, index) => {
+              if (li.type === "escrow" || li.type === "conditional") {
+                const milestone: Milestone = {
+                  id: `ms_${doc.id}_${index}` as MilestoneId,
+                  documentId: doc.id as DocumentId,
+                  lineItemIndex: index,
+                  description: li.description,
+                  amount: li.amount,
+                  condition: li.condition ?? "Completion of work",
+                  status: "pending",
+                };
+                return milestone;
+              }
+              return null;
+            })
+            .filter((m): m is Milestone => m !== null);
+
+          if (milestones.length > 0) {
+            deps.document.updateMilestones(doc.id, milestones);
+          }
+
+          // Broadcast document to both users
+          const docWithMilestones = deps.document.getDocument(doc.id)!;
+          deps.panelEmitter.broadcast(deps.roomId, {
+            panel: "document",
+            document: docWithMilestones,
+          });
+
+          // Broadcast milestones individually
+          for (const milestone of milestones) {
+            deps.panelEmitter.broadcast(deps.roomId, {
+              panel: "milestone",
+              milestone,
+            });
+          }
+
+          const milestoneInfo =
+            milestones.length > 0
+              ? `\nMilestones created: ${milestones.length} (${milestones.map((m) => m.description).join(", ")})`
+              : "";
+
+          return `Document generated: "${doc.title}" (${doc.id})\nParties: ${parties.map((p) => p.name).join(", ")}\nLine items: ${negotiation.currentProposal.lineItems.length}${milestoneInfo}\nStatus: pending signatures`;
+        } catch (err) {
+          return `Error generating document: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      },
+    },
+
+    // Tool 11: complete_milestone
+    {
+      name: "complete_milestone",
+      description:
+        "Mark a milestone as completed and release linked escrow funds if applicable. Only call when the milestone's condition has been verified as met.",
+      parameters: {
+        type: "object",
+        properties: {
+          milestoneId: {
+            type: "string",
+            description: "The ID of the milestone to complete",
+          },
+          documentId: {
+            type: "string",
+            description: "The ID of the document containing the milestone",
+          },
+        },
+        required: ["milestoneId", "documentId"],
+      },
+      handler: async (input) => {
+        try {
+          const documentId = String(input.documentId) as DocumentId;
+          const milestoneId = String(input.milestoneId) as MilestoneId;
+
+          const doc = deps.document.getDocument(documentId);
+          if (!doc) {
+            return `Error: Document ${documentId} not found`;
+          }
+          if (doc.status !== "fully_signed") {
+            return `Error: Document must be fully signed before completing milestones (current: ${doc.status})`;
+          }
+
+          const milestones = doc.milestones ?? [];
+          const milestone = milestones.find((m) => m.id === milestoneId);
+          if (!milestone) {
+            return `Error: Milestone ${milestoneId} not found in document ${documentId}`;
+          }
+          if (milestone.status === "completed") {
+            return `Milestone "${milestone.description}" is already completed`;
+          }
+
+          // Inform rather than capture — verification must go through VerificationService
+          deps.panelEmitter.broadcast(deps.roomId, {
+            panel: "agent",
+            userId: deps.userId,
+            text: `Milestone "${milestone.description}" is ready for verification. The user should click the Verify button to start the LLM verification process.`,
+            timestamp: Date.now(),
+          });
+
+          return `Milestone "${milestone.description}" is pending verification. Milestone completion must be initiated by the user through the Verify button, which triggers the full verification protocol.`;
+        } catch (err) {
+          return `Error completing milestone: ${err instanceof Error ? err.message : String(err)}`;
         }
       },
     },

@@ -179,3 +179,78 @@ describe("ProfileManager Module", () => {
     expect(pm.getProfile("user-1")!.preferences.maxAutoApproveAmount).toBe(0);
   });
 });
+
+describe("ProfileManager — contextDocuments and optional fields", () => {
+  let pm: ProfileManager;
+
+  beforeEach(() => {
+    pm = new ProfileManager();
+  });
+
+  it("should accept exactly 5 context documents at 5KB each (boundary)", () => {
+    const docs = Array.from({ length: 5 }, (_, i) => "x".repeat(5120));
+    pm.setProfile("user-1", validProfile({ contextDocuments: docs }));
+    const profile = pm.getProfile("user-1")!;
+    expect(profile.contextDocuments).toHaveLength(5);
+    expect(profile.contextDocuments![0].length).toBe(5120);
+  });
+
+  it("should truncate to 5 context documents when 6 are provided", () => {
+    const docs = Array.from({ length: 6 }, (_, i) => `Document ${i}`);
+    pm.setProfile("user-1", validProfile({ contextDocuments: docs }));
+    const profile = pm.getProfile("user-1")!;
+    expect(profile.contextDocuments).toHaveLength(5);
+    expect(profile.contextDocuments![4]).toBe("Document 4");
+  });
+
+  it("should discard typicalRateRange when min > max", () => {
+    pm.setProfile(
+      "user-1",
+      validProfile({
+        typicalRateRange: { min: 500, max: 100, unit: "hour" },
+      }),
+    );
+    const profile = pm.getProfile("user-1")!;
+    expect(profile.typicalRateRange).toBeUndefined();
+  });
+
+  it("should truncate very long trade string to 100 chars", () => {
+    const longTrade = "a".repeat(10000);
+    pm.setProfile("user-1", validProfile({ trade: longTrade }));
+    const profile = pm.getProfile("user-1")!;
+    expect(profile.trade).toBeDefined();
+    expect(profile.trade!.length).toBe(100);
+  });
+
+  it("should preserve all optional fields when populated", () => {
+    pm.setProfile(
+      "user-1",
+      validProfile({
+        trade: "Electrician",
+        experienceYears: 15,
+        certifications: ["NVQ Level 3", "Part P"],
+        typicalRateRange: { min: 4000, max: 8000, unit: "day" },
+        serviceArea: "Greater London",
+        contextDocuments: ["Prior work agreement", "Insurance certificate"],
+        stripeAccountId: "acct_test_123",
+        monzoAccessToken: "tok_abc",
+      }),
+    );
+    const profile = pm.getProfile("user-1")!;
+    expect(profile.trade).toBe("Electrician");
+    expect(profile.experienceYears).toBe(15);
+    expect(profile.certifications).toEqual(["NVQ Level 3", "Part P"]);
+    expect(profile.typicalRateRange).toEqual({
+      min: 4000,
+      max: 8000,
+      unit: "day",
+    });
+    expect(profile.serviceArea).toBe("Greater London");
+    expect(profile.contextDocuments).toEqual([
+      "Prior work agreement",
+      "Insurance certificate",
+    ]);
+    expect(profile.stripeAccountId).toBe("acct_test_123");
+    expect(profile.monzoAccessToken).toBe("tok_abc");
+  });
+});

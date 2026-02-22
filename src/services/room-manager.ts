@@ -8,6 +8,7 @@ import type {
   ClientMessage,
   TriggerEvent,
   Negotiation,
+  VerificationResult,
 } from "../types.js";
 import type {
   FinalTranscript,
@@ -27,6 +28,8 @@ import { MonzoService } from "./monzo.js";
 import { ProfileManager } from "./profile-manager.js";
 import { InProcessPeer } from "./in-process-peer.js";
 import { PanelEmitter } from "./panel-emitter.js";
+import { VerificationService } from "./verification.js";
+import { PhoneVerificationService } from "./phone-verification.js";
 import { createLLMProvider } from "../providers/index.js";
 import { buildTools } from "../tools.js";
 import type { ToolDependencies } from "../tools.js";
@@ -50,6 +53,9 @@ interface Room {
   document: DocumentService | null;
   payment: PaymentService;
   paired: boolean;
+  triggerInProgress: boolean;
+  paymentsExecuted: boolean;
+  documentIds?: string[];
 }
 
 const MAX_USERS_PER_ROOM = 2;
@@ -101,23 +107,81 @@ export class RoomManager implements IRoomManager {
   }
 
   registerAudioSocket(roomId: RoomId, userId: UserId, ws: WebSocket): void {
-    console.log(`[room] Audio socket registered for ${userId}`);
+    console.log(
+      `[room] Audio socket registered for ${userId} in room ${roomId}`,
+    );
+
+    // Try to wire immediately if both room and slot exist
     const room = this.rooms.get(roomId);
-    if (!room) {
-      ws.close(4003, "Room not found");
-      return;
-    }
-    const slot = room.slots.get(userId);
-    if (!slot) {
-      ws.close(4004, "User not in room");
-      return;
+    if (room) {
+      const slot = room.slots.get(userId);
+      if (slot) {
+        this.wireAudioSocket(room, slot, userId, ws);
+        return;
+      }
     }
 
+    // Room or slot doesn't exist yet — join_room message is likely in-flight.
+    // Poll briefly for both to appear instead of rejecting immediately.
+    console.log(
+      `[room] Waiting for room/slot for ${userId} (room=${!!room}, slot=${!!room?.slots.get(userId)})`,
+    );
+    this.waitForRoomAndSlot(roomId, userId, ws);
+  }
+
+  private waitForRoomAndSlot(
+    roomId: RoomId,
+    userId: UserId,
+    ws: WebSocket,
+  ): void {
+    const POLL_INTERVAL_MS = 200;
+    const MAX_ATTEMPTS = 25; // 5s total
+    let attempts = 0;
+
+    const timer = setInterval(() => {
+      attempts++;
+
+      // WebSocket closed while waiting — stop polling
+      if (ws.readyState !== ws.OPEN) {
+        clearInterval(timer);
+        console.log(`[room] Audio socket closed while waiting for ${userId}`);
+        return;
+      }
+
+      const room = this.rooms.get(roomId);
+      const slot = room?.slots.get(userId);
+      if (room && slot) {
+        clearInterval(timer);
+        console.log(
+          `[room] Room+slot appeared for ${userId} after ${attempts * POLL_INTERVAL_MS}ms`,
+        );
+        this.wireAudioSocket(room, slot, userId, ws);
+        return;
+      }
+
+      if (attempts >= MAX_ATTEMPTS) {
+        clearInterval(timer);
+        const reason = !room ? "Room not found" : "User not in room";
+        console.log(
+          `[room] Wait timed out for ${userId} after ${MAX_ATTEMPTS * POLL_INTERVAL_MS}ms: ${reason}`,
+        );
+        ws.close(!room ? 4003 : 4004, reason);
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
+  private wireAudioSocket(
+    room: Room,
+    slot: UserSlot,
+    userId: UserId,
+    ws: WebSocket,
+  ): void {
     room.audioRelay.registerUser(userId, ws);
 
     // Start transcription when audio socket connects (lazy — avoids wasting API time before audio flows)
+    console.log(`[room] Transcription started for ${userId}`);
     slot.transcription.start().catch((err) => {
-      console.error("[room] Transcription start failed:", err);
+      console.error(`[room] Transcription start failed for ${userId}:`, err);
       this.panelEmitter.sendToUser(userId, {
         panel: "error",
         message: `Transcription failed: ${(err as Error).message}`,
@@ -139,6 +203,7 @@ export class RoomManager implements IRoomManager {
 
     ws.on("close", () => {
       room.audioRelay.unregisterUser(userId);
+      slot.transcription.stop().catch(() => {});
     });
   }
 
@@ -154,6 +219,10 @@ export class RoomManager implements IRoomManager {
       } catch {
         /* ignore malformed JSON */
       }
+    });
+
+    ws.on("close", () => {
+      this.panelEmitter.unregisterSocket(userId);
     });
 
     const room = this.rooms.get(roomId);
@@ -180,6 +249,26 @@ export class RoomManager implements IRoomManager {
             break;
           }
         }
+        break;
+      }
+
+      case "complete_milestone": {
+        this.handleVerifyMilestone(
+          userId,
+          message.documentId,
+          message.milestoneId,
+        );
+        break;
+      }
+
+      case "verify_milestone": {
+        this.handleVerifyMilestone(
+          userId,
+          message.documentId,
+          message.milestoneId,
+          message.phoneNumber,
+          message.contactName,
+        );
         break;
       }
 
@@ -239,6 +328,8 @@ export class RoomManager implements IRoomManager {
         platformAccountId: this.config.stripe.platformAccountId,
       }),
       paired: false,
+      triggerInProgress: false,
+      paymentsExecuted: false,
     };
 
     this.rooms.set(roomId, room);
@@ -253,11 +344,14 @@ export class RoomManager implements IRoomManager {
     const audio = new AudioService();
     audio.setSampleRate(16000);
 
-    const transcription = new TranscriptionService({
-      apiKey: this.config.elevenlabs.apiKey,
-      region: this.config.elevenlabs.region,
-      language: this.config.elevenlabs.language,
-    });
+    const transcription = new TranscriptionService(
+      {
+        apiKey: this.config.elevenlabs.apiKey,
+        region: this.config.elevenlabs.region,
+        language: this.config.elevenlabs.language,
+      },
+      userId,
+    );
 
     const session = new SessionService();
     session.setStatus("discovering");
@@ -464,6 +558,7 @@ export class RoomManager implements IRoomManager {
         panel: "negotiation",
         negotiation: neg,
       });
+      room.triggerInProgress = false;
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
       slotA.triggerDetector.reset();
@@ -474,6 +569,7 @@ export class RoomManager implements IRoomManager {
         panel: "negotiation",
         negotiation: neg,
       });
+      room.triggerInProgress = false;
       slotA.session.setStatus("active");
       slotB.session.setStatus("active");
       slotA.triggerDetector.reset();
@@ -502,12 +598,16 @@ export class RoomManager implements IRoomManager {
         payment: room.payment,
         monzo: slot.monzo,
         negotiation: room.negotiation!,
+        document: room.document!,
+        session: slot.session,
         panelEmitter: this.panelEmitter,
         peer: slot.peer!,
         userId: uid,
         otherUserId: otherUid,
         displayName: userProfile.displayName,
+        otherDisplayName: otherProfile?.displayName ?? otherUid,
         recipientAccountId: otherProfile?.stripeAccountId ?? "",
+        payerCustomerId: this.config.stripe.customerIdForDemo,
         roomId: room.id,
       };
 
@@ -560,13 +660,14 @@ export class RoomManager implements IRoomManager {
     userId: UserId,
     event: TriggerEvent,
   ): void {
-    // Double-trigger guard: if negotiation already active, ignore
-    if (room.negotiation?.getActiveNegotiation()) {
+    // Double-trigger guard: if negotiation already active or trigger in progress, ignore
+    if (room.negotiation?.getActiveNegotiation() || room.triggerInProgress) {
       console.log(
-        `[room] Trigger from ${userId} ignored — negotiation already active`,
+        `[room] Trigger from ${userId} ignored — negotiation already active or trigger in progress`,
       );
       return;
     }
+    room.triggerInProgress = true;
     this.handleTrigger(room, event);
   }
 
@@ -594,33 +695,19 @@ export class RoomManager implements IRoomManager {
       slot.session.setStatus("signing");
     }
 
-    const parties = [...room.slots.entries()].map(([uid]) => {
-      const profile =
-        this.profileManager.getProfile(uid) ??
-        this.profileManager.getDefaultProfile(uid);
-      return { userId: uid, name: profile.displayName, role: profile.role };
-    });
-
-    const firstSlot = room.slots.values().next().value;
-    const conversationContext = firstSlot
-      ? firstSlot.session.getTranscriptText()
-      : "";
-
-    const doc = await room.document?.generateDocument(
-      negotiation,
-      negotiation.currentProposal,
-      parties,
-      conversationContext,
+    // Track document IDs for milestone linking
+    room.documentIds = room.documentIds ?? [];
+    room.document?.once(
+      "document:generated",
+      (doc: import("../types.js").LegalDocument) => {
+        if (!room.documentIds!.includes(doc.id)) {
+          room.documentIds!.push(doc.id);
+        }
+      },
     );
 
-    if (doc) {
-      this.panelEmitter.broadcast(room.id, {
-        panel: "document",
-        document: doc,
-      });
-    }
-
-    room.document?.once(
+    // Wire document events — use .on() so ALL signatures broadcast, not just the first
+    room.document?.on(
       "document:signed",
       ({ documentId, userId }: { documentId: string; userId: string }) => {
         this.panelEmitter.broadcast(room.id, {
@@ -629,48 +716,165 @@ export class RoomManager implements IRoomManager {
           step: "signature",
           status: `${userId} signed`,
         });
+
+        // Re-broadcast the updated document so both clients see the new signature count
+        const updatedDoc = room.document?.getDocument(documentId);
+        if (updatedDoc) {
+          this.panelEmitter.broadcast(room.id, {
+            panel: "document",
+            document: updatedDoc,
+          });
+        }
       },
     );
 
     room.document?.once("document:completed", async () => {
       await this.executePayments(room, negotiation);
     });
+
+    // Inject instruction into initiator's agent to generate document via tool
+    const initiatorSlot = room.slots.get(negotiation.initiator);
+    if (initiatorSlot) {
+      const instruction = `[AGREEMENT REACHED — GENERATE DOCUMENT]
+The negotiation ${negotiation.id} has been accepted by both parties.
+Use the generate_document tool now to create a binding legal document.
+Negotiation ID: ${negotiation.id}
+
+Inform your user that the agreement has been reached and you are generating the document.`;
+
+      initiatorSlot.agent
+        .injectInstruction(instruction)
+        .catch((err) =>
+          console.error("[room] Agent document generation failed:", err),
+        );
+    }
   }
 
   private async executePayments(
     room: Room,
     negotiation: Negotiation,
   ): Promise<void> {
+    // Idempotency guard: prevent duplicate payment execution
+    if (room.paymentsExecuted) {
+      console.log(
+        `[room] Payments already executed for room ${room.id}, skipping`,
+      );
+      return;
+    }
+    room.paymentsExecuted = true;
+
     const responderProfile = this.profileManager.getProfile(
       negotiation.responder,
     );
     const recipientStripeId = responderProfile?.stripeAccountId ?? "";
 
-    for (const li of negotiation.currentProposal.lineItems) {
+    // Find the document to link escrow holds to milestones
+    let documentMilestones: import("../types.js").Milestone[] = [];
+    let documentId: string | undefined;
+    if (room.document) {
+      // Find the document for this negotiation
+      for (const [docId, doc] of this.getDocuments(room)) {
+        if (doc.negotiationId === negotiation.id) {
+          documentMilestones = doc.milestones ?? [];
+          documentId = docId;
+          break;
+        }
+      }
+    }
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let i = 0; i < negotiation.currentProposal.lineItems.length; i++) {
+      const li = negotiation.currentProposal.lineItems[i];
       if (li.type === "immediate") {
-        const result = await room.payment.executePayment({
+        // Emit processing receipt
+        this.panelEmitter.broadcast(room.id, {
+          panel: "payment_receipt",
           amount: li.amount,
           currency: negotiation.currentProposal.currency,
+          recipient: responderProfile?.displayName ?? negotiation.responder,
+          status: "processing",
+          paymentIntentId: "",
           description: li.description,
-          recipientAccountId: recipientStripeId,
         });
-        this.panelEmitter.broadcast(room.id, {
-          panel: "execution",
-          negotiationId: negotiation.id,
-          step: `payment_${li.description}`,
-          status: result.success ? "done" : "failed",
-          details: result.success
-            ? `Payment: £${(li.amount / 100).toFixed(2)}`
-            : result.error,
-        });
-      } else if (li.type === "escrow") {
+
         try {
-          const hold = await room.payment.createEscrowHold({
+          const result = await room.payment.executePayment({
             amount: li.amount,
             currency: negotiation.currentProposal.currency,
             description: li.description,
             recipientAccountId: recipientStripeId,
+            payerCustomerId: this.config.stripe.customerIdForDemo,
           });
+          if (result.success) {
+            succeeded++;
+          } else {
+            failed++;
+          }
+
+          // Emit final receipt
+          this.panelEmitter.broadcast(room.id, {
+            panel: "payment_receipt",
+            amount: li.amount,
+            currency: negotiation.currentProposal.currency,
+            recipient: responderProfile?.displayName ?? negotiation.responder,
+            status: result.success ? "succeeded" : "failed",
+            paymentIntentId: result.paymentIntentId ?? "",
+            description: li.description,
+          });
+
+          this.panelEmitter.broadcast(room.id, {
+            panel: "execution",
+            negotiationId: negotiation.id,
+            step: `payment_${li.description}`,
+            status: result.success ? "done" : "failed",
+            details: result.success
+              ? `Payment: £${(li.amount / 100).toFixed(2)}`
+              : result.error,
+          });
+        } catch (err) {
+          failed++;
+          this.panelEmitter.broadcast(room.id, {
+            panel: "payment_receipt",
+            amount: li.amount,
+            currency: negotiation.currentProposal.currency,
+            recipient: responderProfile?.displayName ?? negotiation.responder,
+            status: "failed",
+            paymentIntentId: "",
+            description: li.description,
+          });
+          this.panelEmitter.broadcast(room.id, {
+            panel: "execution",
+            negotiationId: negotiation.id,
+            step: `payment_${li.description}`,
+            status: "failed",
+            details: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } else if (li.type === "escrow") {
+        try {
+          const hold = await room.payment.createEscrowHold({
+            amount: li.maxAmount ?? li.amount,
+            currency: negotiation.currentProposal.currency,
+            description: li.description,
+            recipientAccountId: recipientStripeId,
+            payerCustomerId: this.config.stripe.customerIdForDemo,
+          });
+          succeeded++;
+
+          // Link escrow holdId to corresponding milestone
+          const milestone = documentMilestones.find(
+            (m) => m.lineItemIndex === i,
+          );
+          if (milestone && documentId && room.document) {
+            const updatedMilestones = documentMilestones.map((m) =>
+              m.lineItemIndex === i ? { ...m, escrowHoldId: hold.holdId } : m,
+            );
+            room.document.updateMilestones(documentId, updatedMilestones);
+            documentMilestones = updatedMilestones;
+          }
+
           this.panelEmitter.broadcast(room.id, {
             panel: "execution",
             negotiationId: negotiation.id,
@@ -679,6 +883,7 @@ export class RoomManager implements IRoomManager {
             details: `Escrow: £${(hold.amount / 100).toFixed(2)} held (${hold.holdId})`,
           });
         } catch (err) {
+          failed++;
           this.panelEmitter.broadcast(room.id, {
             panel: "execution",
             negotiationId: negotiation.id,
@@ -690,15 +895,221 @@ export class RoomManager implements IRoomManager {
       }
     }
 
-    for (const slot of room.slots.values()) {
-      slot.session.setStatus("completed");
+    if (failed > 0) {
+      this.panelEmitter.broadcast(room.id, {
+        panel: "execution",
+        negotiationId: negotiation.id,
+        step: "payment_summary",
+        status: "partial_failure",
+        details: `${succeeded} succeeded, ${failed} failed out of ${negotiation.currentProposal.lineItems.length} items`,
+      });
     }
 
-    this.panelEmitter.broadcast(room.id, {
-      panel: "status",
-      roomId: room.id,
-      users: [...room.slots.keys()],
-      sessionStatus: "completed",
+    // Re-broadcast the completed document (with milestones + escrow holdIds) for client-side persistence
+    if (documentId && room.document) {
+      const completedDoc = room.document.getDocument(documentId);
+      if (completedDoc) {
+        this.panelEmitter.broadcast(room.id, {
+          panel: "document",
+          document: completedDoc,
+        });
+      }
+    }
+
+    // Only set to "completed" if no pending milestones remain
+    const hasPendingMilestones = documentMilestones.some(
+      (m) => m.status === "pending",
+    );
+
+    if (!hasPendingMilestones) {
+      for (const slot of room.slots.values()) {
+        slot.session.setStatus("completed");
+      }
+
+      this.panelEmitter.broadcast(room.id, {
+        panel: "status",
+        roomId: room.id,
+        users: [...room.slots.keys()],
+        sessionStatus: "completed",
+      });
+    }
+  }
+
+  private getDocuments(
+    room: Room,
+  ): Array<[string, import("../types.js").LegalDocument]> {
+    // Access the document service's stored documents via getDocument
+    // We check documents by iterating known negotiation IDs
+    const results: Array<[string, import("../types.js").LegalDocument]> = [];
+    if (!room.document || !room.negotiation) return results;
+    const neg = room.negotiation.getActiveNegotiation();
+    if (!neg) return results;
+    // The document ID pattern is "doc_<base36timestamp>_<random>"
+    // We can't enumerate, but documents are accessible if we track them
+    // Instead, scan by checking all documents emitted via events
+    // For now, iterate by checking the negotiation's document
+    // DocumentService stores by ID — we need to find it by negotiation ID
+    // Use a simple approach: room.document stores docs in a Map, we access via getDocument
+    // Since we can't iterate the Map from outside, we'll track doc IDs on the room
+    for (const docId of room.documentIds ?? []) {
+      const doc = room.document.getDocument(docId);
+      if (doc) results.push([docId, doc]);
+    }
+    return results;
+  }
+
+  private handleVerifyMilestone(
+    userId: UserId,
+    documentId: string,
+    milestoneId: string,
+    phoneNumber?: string,
+    contactName?: string,
+  ): void {
+    for (const room of this.rooms.values()) {
+      if (!room.slots.has(userId) || !room.document) continue;
+
+      const doc = room.document.getDocument(documentId);
+      if (!doc) {
+        this.panelEmitter.sendToUser(userId, {
+          panel: "error",
+          message: `Document ${documentId} not found`,
+        });
+        return;
+      }
+
+      const milestone = doc.milestones?.find((m) => m.id === milestoneId);
+      if (!milestone) {
+        this.panelEmitter.sendToUser(userId, {
+          panel: "error",
+          message: `Milestone ${milestoneId} not found`,
+        });
+        return;
+      }
+
+      if (milestone.status !== "pending") {
+        this.panelEmitter.sendToUser(userId, {
+          panel: "error",
+          message: `Milestone is already ${milestone.status}`,
+        });
+        return;
+      }
+
+      const lineItem = doc.terms.lineItems[milestone.lineItemIndex];
+      if (!lineItem) {
+        this.panelEmitter.sendToUser(userId, {
+          panel: "error",
+          message: "Associated line item not found",
+        });
+        return;
+      }
+
+      // Update milestone to "verifying"
+      const updatedMilestones = (doc.milestones ?? []).map((m) =>
+        m.id === milestoneId ? { ...m, status: "verifying" as const } : m,
+      );
+      room.document.updateMilestones(documentId, updatedMilestones);
+      this.panelEmitter.broadcast(room.id, {
+        panel: "milestone",
+        milestone: { ...milestone, status: "verifying" },
+      });
+
+      // Create one-shot verification service
+      const llmProvider = createLLMProvider(
+        this.config.llm.provider,
+        this.config.llm.apiKey,
+      );
+
+      const slot = room.slots.get(userId)!;
+      const phoneService = new PhoneVerificationService({
+        apiKey: this.config.elevenlabs.apiKey,
+        phoneNumberId: this.config.elevenlabs.phoneNumberId,
+      });
+
+      const verificationService = new VerificationService(
+        {
+          provider: llmProvider,
+          model: this.config.llm.model,
+          maxTokens: 4096,
+        },
+        room.payment,
+        slot.monzo,
+        phoneService,
+        this.panelEmitter,
+        room.id,
+      );
+
+      // Run verification (async, fire-and-forget with error handling)
+      verificationService
+        .verifyMilestone(
+          doc,
+          milestone,
+          lineItem,
+          userId,
+          phoneNumber,
+          contactName,
+        )
+        .then((result: VerificationResult) => {
+          // Update milestone based on verdict
+          const statusMap = {
+            passed: "completed" as const,
+            failed: "failed" as const,
+            disputed: "disputed" as const,
+            pending: "pending" as const,
+            in_progress: "verifying" as const,
+          };
+
+          const currentDoc = room.document!.getDocument(documentId);
+          if (!currentDoc) return;
+
+          const finalMilestones = (currentDoc.milestones ?? []).map((m) =>
+            m.id === milestoneId
+              ? {
+                  ...m,
+                  status: statusMap[result.status] ?? ("disputed" as const),
+                  verificationId: result.id,
+                  verificationResult: result,
+                  completedAt:
+                    result.status === "passed" ? Date.now() : undefined,
+                  completedBy: result.status === "passed" ? userId : undefined,
+                }
+              : m,
+          );
+          room.document!.updateMilestones(documentId, finalMilestones);
+
+          // Re-broadcast updated document
+          const updatedDoc = room.document!.getDocument(documentId);
+          if (updatedDoc) {
+            this.panelEmitter.broadcast(room.id, {
+              panel: "document",
+              document: updatedDoc,
+            });
+          }
+
+          // Broadcast milestone update
+          const updatedMilestone = finalMilestones.find(
+            (m) => m.id === milestoneId,
+          );
+          if (updatedMilestone) {
+            this.panelEmitter.broadcast(room.id, {
+              panel: "milestone",
+              milestone: updatedMilestone,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error("[room] Verification failed:", err);
+          this.panelEmitter.sendToUser(userId, {
+            panel: "error",
+            message: `Verification failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
+
+      return;
+    }
+
+    this.panelEmitter.sendToUser(userId, {
+      panel: "error",
+      message: "No active room found for verification",
     });
   }
 
@@ -714,6 +1125,17 @@ export class RoomManager implements IRoomManager {
     this.panelEmitter.unregisterSocket(userId);
     room.audioRelay.unregisterUser(userId);
     room.slots.delete(userId);
-    room.paired = false;
+
+    // Only unpair when we drop below 2 users
+    if (room.slots.size < 2) {
+      room.paired = false;
+      room.triggerInProgress = false;
+    }
+
+    // Abort active negotiation when a user leaves
+    if (room.negotiation?.getActiveNegotiation()) {
+      room.negotiation.destroy();
+      room.negotiation = null;
+    }
   }
 }

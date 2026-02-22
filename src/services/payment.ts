@@ -25,18 +25,29 @@ export class PaymentService implements IPaymentService {
     }
 
     try {
-      const pi = await this.stripe.paymentIntents.create({
+      const params: Stripe.PaymentIntentCreateParams = {
         amount: request.amount,
         currency: request.currency,
         description: request.description,
         transfer_data: {
           destination: request.recipientAccountId,
         },
-        automatic_payment_methods: {
+        confirm: true,
+      };
+
+      if (request.payerCustomerId) {
+        params.customer = request.payerCustomerId;
+        params.payment_method = "pm_card_visa";
+      } else {
+        params.automatic_payment_methods = {
           enabled: true,
           allow_redirects: "never",
-        },
-        confirm: true,
+        };
+      }
+
+      const idempotencyKey = `pay_${request.recipientAccountId}_${request.amount}_${Date.now()}`;
+      const pi = await this.stripe.paymentIntents.create(params, {
+        idempotencyKey,
       });
 
       return {
@@ -56,7 +67,7 @@ export class PaymentService implements IPaymentService {
       throw new Error(`Invalid escrow request: ${validationError}`);
     }
 
-    const pi = await this.stripe.paymentIntents.create({
+    const escrowParams: Stripe.PaymentIntentCreateParams = {
       amount: request.amount,
       currency: request.currency,
       description: `Escrow: ${request.description}`,
@@ -64,11 +75,22 @@ export class PaymentService implements IPaymentService {
         destination: request.recipientAccountId,
       },
       capture_method: "manual",
-      automatic_payment_methods: {
+      confirm: true,
+    };
+
+    if (request.payerCustomerId) {
+      escrowParams.customer = request.payerCustomerId;
+      escrowParams.payment_method = "pm_card_visa";
+    } else {
+      escrowParams.automatic_payment_methods = {
         enabled: true,
         allow_redirects: "never",
-      },
-      confirm: true,
+      };
+    }
+
+    const escrowIdempotencyKey = `escrow_${request.recipientAccountId}_${request.amount}_${Date.now()}`;
+    const pi = await this.stripe.paymentIntents.create(escrowParams, {
+      idempotencyKey: escrowIdempotencyKey,
     });
 
     const hold: EscrowHold = {

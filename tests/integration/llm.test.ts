@@ -85,8 +85,12 @@ describe("LLM Provider Integration (real API)", () => {
     expect(textBlock).toBeDefined();
 
     if (textBlock && textBlock.type === "text") {
-      // Should be parseable JSON
-      const parsed = JSON.parse(textBlock.text);
+      // Strip markdown fences if present (LLMs sometimes wrap JSON in ```json ... ```)
+      const rawText = textBlock.text
+        .replace(/^```(?:json)?\s*\n?/i, "")
+        .replace(/\n?```\s*$/i, "")
+        .trim();
+      const parsed = JSON.parse(rawText);
       expect(typeof parsed.triggered).toBe("boolean");
       expect(typeof parsed.confidence).toBe("number");
       expect(Array.isArray(parsed.terms)).toBe(true);

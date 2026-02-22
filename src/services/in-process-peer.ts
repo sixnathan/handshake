@@ -18,8 +18,9 @@ export class InProcessPeer extends EventEmitter implements IInProcessPeer {
     if (!this.partner) {
       throw new Error("No partner connected");
     }
+    const partner = this.partner;
     const copy = { ...message };
-    process.nextTick(() => this.partner!.emit("message", copy));
+    process.nextTick(() => partner.emit("message", copy));
   }
 
   getOtherUserId(): UserId {

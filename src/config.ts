@@ -51,10 +51,12 @@ export function loadConfig(): AppConfig {
       apiKey: required("ELEVENLABS_API_KEY"),
       region: optional("ELEVENLABS_REGION", "us"),
       language: optional("ELEVENLABS_LANGUAGE", "en"),
+      phoneNumberId: optional("ELEVENLABS_PHONE_NUMBER_ID"),
     },
     stripe: {
       secretKey: required("STRIPE_SECRET_KEY"),
       platformAccountId: required("STRIPE_PLATFORM_ACCOUNT_ID"),
+      customerIdForDemo: optional("STRIPE_CUSTOMER_ID"),
     },
     llm: {
       provider: oneOf(

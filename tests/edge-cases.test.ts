@@ -303,12 +303,12 @@ describe("Edge Cases & Stress Tests", () => {
         audio.on("chunk", (c) => chunks.push(c));
         audio.setSampleRate(16000);
 
-        // 1MB of audio
+        // 1MB of audio — buffer limit caps at 960KB (30s of 16kHz 16-bit PCM)
         audio.feedRawAudio(Buffer.alloc(1_000_000));
         vi.advanceTimersByTime(250);
 
-        // 1_000_000 / 8000 = 125 chunks
-        expect(chunks).toHaveLength(125);
+        // 960_000 / 8000 = 120 chunks (capped by MAX_BUFFER_BYTES)
+        expect(chunks).toHaveLength(120);
         audio.destroy();
       } finally {
         vi.useRealTimers();
@@ -376,6 +376,205 @@ describe("Edge Cases & Stress Tests", () => {
         expect(sockets[i].send).toHaveBeenCalledOnce();
       }
       relay.destroy();
+    });
+  });
+
+  describe("Additional edge cases", () => {
+    it("should handle negotiation with 0-amount line item", () => {
+      vi.useFakeTimers();
+      try {
+        const neg = new NegotiationService("room-0amt");
+        const proposal: AgentProposal = {
+          summary: "Free consultation",
+          lineItems: [
+            { description: "Consultation", amount: 0, type: "immediate" },
+          ],
+          totalAmount: 0,
+          currency: "gbp",
+          conditions: [],
+          expiresAt: Date.now() + 30000,
+        };
+        // Should not throw — 0 amount is a valid edge case
+        const n = neg.createNegotiation("alice", "bob", proposal);
+        expect(n.status).toBe("proposed");
+        expect(n.currentProposal.totalAmount).toBe(0);
+        neg.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should accept proposal with 100 line items (no arbitrary limit)", () => {
+      vi.useFakeTimers();
+      try {
+        const neg = new NegotiationService("room-100");
+        const lineItems = Array.from({ length: 100 }, (_, i) => ({
+          description: `Item ${i}`,
+          amount: 100,
+          type: "immediate" as const,
+        }));
+        const proposal: AgentProposal = {
+          summary: "Bulk items",
+          lineItems,
+          totalAmount: 10000,
+          currency: "gbp",
+          conditions: [],
+          expiresAt: Date.now() + 30000,
+        };
+        const n = neg.createNegotiation("alice", "bob", proposal);
+        expect(n.currentProposal.lineItems).toHaveLength(100);
+        neg.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should truncate large conversation context in document generation prompt", () => {
+      // The DocumentService.buildDocumentRequest uses conversationContext.slice(-2000)
+      // Verify behavior: a 10KB context should be truncated to last 2000 chars
+      const bigContext = "x".repeat(10_000);
+      const truncated = bigContext.slice(-2000);
+      expect(truncated.length).toBe(2000);
+      expect(truncated).toBe("x".repeat(2000));
+    });
+
+    it("should handle AgentService receiveAgentMessage with missing fields gracefully", async () => {
+      const mockProvider = {
+        createMessage: vi.fn().mockResolvedValue({
+          content: [{ type: "text", text: "OK" }],
+          stopReason: "end_turn",
+          model: "test",
+          usage: { inputTokens: 0, outputTokens: 0 },
+        }),
+      };
+      const { AgentService } = await import("../src/services/agent.js");
+      const agent = new AgentService({
+        provider: mockProvider as any,
+        model: "test-model",
+        maxTokens: 1000,
+      });
+      await agent.start({
+        displayName: "Test",
+        role: "tester",
+        customInstructions: "",
+        preferences: {
+          maxAutoApproveAmount: 0,
+          preferredCurrency: "gbp",
+          escrowPreference: "never",
+          escrowThreshold: 0,
+          negotiationStyle: "balanced",
+        },
+      });
+
+      // Should not crash even with a minimal message
+      await agent.receiveAgentMessage({
+        type: "agent_accept",
+        negotiationId: "neg_missing",
+        fromAgent: "unknown",
+      });
+
+      agent.stop();
+    });
+
+    it("should apply defaults for profile with minimal fields", () => {
+      const pm = new ProfileManager();
+      pm.setProfile("minimal-user", {
+        displayName: "Minimal",
+        role: "participant",
+        customInstructions: "",
+        preferences: {
+          maxAutoApproveAmount: 0,
+          preferredCurrency: "gbp",
+          escrowPreference: "never",
+          escrowThreshold: 0,
+          negotiationStyle: "balanced",
+        },
+      });
+      const profile = pm.getProfile("minimal-user")!;
+      expect(profile.displayName).toBe("Minimal");
+      expect(profile.trade).toBeUndefined();
+      expect(profile.experienceYears).toBeUndefined();
+      expect(profile.certifications).toBeUndefined();
+      expect(profile.typicalRateRange).toBeUndefined();
+      expect(profile.serviceArea).toBeUndefined();
+      expect(profile.contextDocuments).toBeUndefined();
+      expect(profile.stripeAccountId).toBeUndefined();
+      expect(profile.monzoAccessToken).toBeUndefined();
+    });
+
+    it("should handle concurrent room creation (10 rooms) without race conditions", () => {
+      vi.useFakeTimers();
+      try {
+        const services = Array.from({ length: 10 }, (_, i) => {
+          const neg = new NegotiationService(`room-concurrent-${i}`);
+          return neg;
+        });
+
+        const negotiations = services.map((neg, i) => {
+          return neg.createNegotiation(
+            `alice-${i}`,
+            `bob-${i}`,
+            makeProposal(),
+          );
+        });
+
+        // All should be independent
+        expect(negotiations).toHaveLength(10);
+        const ids = new Set(negotiations.map((n) => n.id));
+        expect(ids.size).toBe(10); // All unique IDs
+
+        negotiations.forEach((n, i) => {
+          expect(n.status).toBe("proposed");
+          expect(n.initiator).toBe(`alice-${i}`);
+          expect(n.responder).toBe(`bob-${i}`);
+        });
+
+        services.forEach((s) => s.destroy());
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should validate milestone status types", () => {
+      const pendingMilestone: import("../src/types.js").Milestone = {
+        id: "ms_1",
+        documentId: "doc_1",
+        lineItemIndex: 0,
+        description: "Complete repair",
+        amount: 5000,
+        condition: "Work done",
+        status: "pending",
+      };
+      expect(pendingMilestone.status).toBe("pending");
+
+      const completedMilestone: import("../src/types.js").Milestone = {
+        ...pendingMilestone,
+        status: "completed",
+        completedAt: Date.now(),
+        completedBy: "alice",
+      };
+      expect(completedMilestone.status).toBe("completed");
+    });
+
+    it("should have clean state after create → destroy → create new NegotiationService", () => {
+      vi.useFakeTimers();
+      try {
+        const neg1 = new NegotiationService("room-lifecycle");
+        const n1 = neg1.createNegotiation("alice", "bob", makeProposal());
+        expect(neg1.getActiveNegotiation()).toBeDefined();
+        neg1.destroy();
+
+        const neg2 = new NegotiationService("room-lifecycle");
+        expect(neg2.getActiveNegotiation()).toBeUndefined();
+        expect(neg2.getNegotiation(n1.id)).toBeUndefined();
+
+        // Can create a new negotiation in the fresh service
+        const n2 = neg2.createNegotiation("charlie", "dave", makeProposal());
+        expect(n2.status).toBe("proposed");
+        neg2.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

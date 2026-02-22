@@ -13,6 +13,30 @@ import type {
 } from "../types.js";
 import type { IAgentService, ToolDefinition } from "../interfaces.js";
 
+function buildProfessionalContext(profile: AgentProfile): string {
+  const lines: string[] = [];
+  if (profile.trade) lines.push(`- Trade: ${profile.trade}`);
+  if (profile.experienceYears !== undefined)
+    lines.push(`- Experience: ${profile.experienceYears} years`);
+  if (profile.certifications && profile.certifications.length > 0) {
+    lines.push(`- Certifications: ${profile.certifications.join(", ")}`);
+  }
+  if (profile.typicalRateRange) {
+    const r = profile.typicalRateRange;
+    lines.push(
+      `- Typical rate: £${(r.min / 100).toFixed(2)}–£${(r.max / 100).toFixed(2)} per ${r.unit}`,
+    );
+  }
+  if (profile.serviceArea) lines.push(`- Service area: ${profile.serviceArea}`);
+  if (profile.contextDocuments && profile.contextDocuments.length > 0) {
+    lines.push(
+      `- Uploaded documents:\n${profile.contextDocuments.map((d, i) => `  [Doc ${i + 1}]: ${d.slice(0, 500)}`).join("\n")}`,
+    );
+  }
+  if (lines.length === 0) return "";
+  return `PROFESSIONAL CONTEXT:\n${lines.join("\n")}\n\n`;
+}
+
 function buildAgentSystemPrompt(profile: AgentProfile): string {
   const maxApprove = (profile.preferences.maxAutoApproveAmount / 100).toFixed(
     2,
@@ -43,7 +67,7 @@ YOUR USER'S PREFERENCES:
 - Escrow threshold: £${escrowThresh}
 - Negotiation style: ${profile.preferences.negotiationStyle}
 ${profile.customInstructions ? `\nCUSTOM INSTRUCTIONS FROM YOUR USER:\n${profile.customInstructions}\n` : ""}
-NEGOTIATION RULES:
+${buildProfessionalContext(profile)}NEGOTIATION RULES:
 - NEVER auto-approve amounts above £${maxApprove}
 - Use escrow for amounts above £${escrowThresh} (when escrowPreference is "above_threshold")
 - If escrowPreference is "always", always use escrow regardless of amount
@@ -61,6 +85,29 @@ COMMUNICATION:
   - Final outcomes
 - Be concise but informative
 - Explain your reasoning
+
+FACTOR-BASED PRICING:
+- Decompose services into verifiable factors that determine the final price
+- Express pricing as: base/fixed fee (immediate) + variable work (escrow with a range)
+- For each variable line item, define:
+  - A price RANGE (minAmount to maxAmount) instead of a single fixed amount
+  - FACTORS: observable conditions that determine where in the range the final price lands
+  - Each factor has: name, what it measures, and impact direction (increases/decreases/determines)
+- The escrow hold uses maxAmount (worst case). Actual capture will be somewhere in the range.
+- Generate a factorSummary: a plain English explanation of how the factors combine to determine cost
+- Example: "£50 callout fee (immediate) + £500-£1000 repair (escrow) depending on pipe complexity, parts needed, and time on-site"
+- For simple fixed-price items (e.g., callout fee), no range or factors needed
+
+DOCUMENT GENERATION:
+- When an agreement is reached and you're instructed to generate a document, use the generate_document tool
+- The document will include milestones for any escrow or conditional line items
+- After both parties sign, immediate payments execute automatically
+- Escrow funds are held until milestones are completed
+
+MILESTONE TRACKING:
+- When asked to verify a milestone completion, use the complete_milestone tool
+- Only mark milestones as complete when conditions are genuinely met
+- If a milestone has linked escrow, completing it releases the held funds
 
 IMPORTANT:
 - You are negotiating with ANOTHER AI AGENT, not a human
@@ -171,6 +218,12 @@ Inform your user that the negotiation was not successful.`;
         break;
     }
 
+    this.messages.push({ role: "user", content });
+    await this.callLLMLoop();
+  }
+
+  async injectInstruction(content: string): Promise<void> {
+    if (!this.running) return;
     this.messages.push({ role: "user", content });
     await this.callLLMLoop();
   }
@@ -301,6 +354,10 @@ Inform your user that the negotiation was not successful.`;
       }
     } catch (err) {
       console.error("[agent] LLM call failed:", err);
+      this.emit("agent:message", {
+        text: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
+        timestamp: Date.now(),
+      });
     }
   }
 }

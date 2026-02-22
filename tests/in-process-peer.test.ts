@@ -132,4 +132,72 @@ describe("InProcessPeer Module", () => {
     expect(bReceived[0].fromAgent).toBe("alice");
     expect(aReceived[0].fromAgent).toBe("bob");
   });
+
+  describe("stress and edge cases", () => {
+    it("should deliver 50 rapid-fire messages in order", async () => {
+      const [peerA, peerB] = InProcessPeer.createPair("alice", "bob");
+
+      const received: AgentMessage[] = [];
+      peerB.on("message", (msg) => received.push(msg));
+
+      for (let i = 0; i < 50; i++) {
+        peerA.send({
+          type: "agent_accept",
+          negotiationId: `neg_${i}`,
+          fromAgent: "alice",
+        });
+      }
+
+      // Drain all nextTick deliveries
+      for (let i = 0; i < 50; i++) {
+        await new Promise((resolve) => process.nextTick(resolve));
+      }
+
+      expect(received.length).toBe(50);
+      for (let i = 0; i < 50; i++) {
+        expect(received[i].negotiationId).toBe(`neg_${i}`);
+      }
+    });
+
+    it("should throw when sending without partner (standalone peer)", () => {
+      const peer = new InProcessPeer("a", "b");
+      expect(() =>
+        peer.send({
+          type: "agent_accept",
+          negotiationId: "neg_1",
+          fromAgent: "a",
+        }),
+      ).toThrow("No partner connected");
+    });
+
+    it("should handle simultaneous bidirectional sends without deadlock", async () => {
+      const [peerA, peerB] = InProcessPeer.createPair("alice", "bob");
+
+      const aReceived: AgentMessage[] = [];
+      const bReceived: AgentMessage[] = [];
+      peerA.on("message", (msg) => aReceived.push(msg));
+      peerB.on("message", (msg) => bReceived.push(msg));
+
+      // Both send simultaneously
+      peerA.send({
+        type: "agent_accept",
+        negotiationId: "neg_1",
+        fromAgent: "alice",
+      });
+      peerB.send({
+        type: "agent_reject",
+        negotiationId: "neg_1",
+        reason: "too much",
+        fromAgent: "bob",
+      });
+
+      // Wait for delivery
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(aReceived.length).toBe(1);
+      expect(bReceived.length).toBe(1);
+      expect(aReceived[0].fromAgent).toBe("bob");
+      expect(bReceived[0].fromAgent).toBe("alice");
+    });
+  });
 });

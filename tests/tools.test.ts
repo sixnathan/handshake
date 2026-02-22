@@ -76,9 +76,56 @@ function makeDeps(overrides: Partial<ToolDependencies> = {}): ToolDependencies {
       listenerCount: vi.fn().mockReturnValue(0),
       eventNames: vi.fn().mockReturnValue([]),
     } as any,
+    document: {
+      generateDocument: vi.fn().mockResolvedValue({
+        id: "doc_1",
+        title: "Agreement",
+        content: "# Agreement",
+        negotiationId: "neg_123",
+        parties: [],
+        terms: {} as any,
+        signatures: [],
+        status: "pending_signatures",
+        createdAt: Date.now(),
+      }),
+      signDocument: vi.fn(),
+      isFullySigned: vi.fn().mockReturnValue(false),
+      getDocument: vi.fn(),
+      updateMilestones: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+      emit: vi.fn(),
+      removeAllListeners: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      listeners: vi.fn().mockReturnValue([]),
+      listenerCount: vi.fn().mockReturnValue(0),
+      eventNames: vi.fn().mockReturnValue([]),
+    } as any,
+    session: {
+      getStatus: vi.fn().mockReturnValue("active"),
+      setStatus: vi.fn(),
+      addTranscript: vi.fn(),
+      getTranscripts: vi.fn().mockReturnValue([]),
+      getTranscriptText: vi.fn().mockReturnValue(""),
+      getRecentTranscriptText: vi.fn().mockReturnValue(""),
+      reset: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+      emit: vi.fn(),
+      removeAllListeners: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      listeners: vi.fn().mockReturnValue([]),
+      listenerCount: vi.fn().mockReturnValue(0),
+      eventNames: vi.fn().mockReturnValue([]),
+    } as any,
     userId: "alice",
     otherUserId: "bob",
     displayName: "Alice",
+    otherDisplayName: "Bob",
     recipientAccountId: "acct_bob",
     roomId: "room-1",
     ...overrides,
@@ -94,8 +141,8 @@ describe("Tools Module", () => {
     tools = buildTools(deps);
   });
 
-  it("should build 9 tools", () => {
-    expect(tools.length).toBe(9);
+  it("should build 11 tools", () => {
+    expect(tools.length).toBe(11);
   });
 
   it("should include all expected tool names", () => {
@@ -109,6 +156,8 @@ describe("Tools Module", () => {
     expect(names).toContain("check_balance");
     expect(names).toContain("check_transactions");
     expect(names).toContain("send_message_to_user");
+    expect(names).toContain("generate_document");
+    expect(names).toContain("complete_milestone");
   });
 
   describe("analyze_and_propose", () => {
@@ -560,6 +609,162 @@ describe("Tools Module", () => {
       });
       expect(result).toContain("Error executing payment");
       expect(result).toContain("Stripe down");
+    });
+  });
+
+  describe("complete_milestone", () => {
+    it("should inform user to verify instead of capturing escrow", async () => {
+      const docWithMilestones = {
+        id: "doc_1",
+        title: "Agreement",
+        content: "# Agreement",
+        negotiationId: "neg_123",
+        parties: [],
+        terms: {} as any,
+        signatures: [],
+        status: "fully_signed",
+        createdAt: Date.now(),
+        milestones: [
+          {
+            id: "ms_1",
+            documentId: "doc_1",
+            lineItemIndex: 0,
+            description: "Complete repair",
+            amount: 5000,
+            condition: "Repair finished",
+            status: "pending",
+            escrowHoldId: "hold_123",
+          },
+        ],
+      };
+      (deps.document.getDocument as any).mockReturnValue(docWithMilestones);
+
+      const tool = tools.find((t) => t.name === "complete_milestone")!;
+      const result = await tool.handler({
+        milestoneId: "ms_1",
+        documentId: "doc_1",
+      });
+
+      expect(deps.payment.captureEscrow).not.toHaveBeenCalled();
+      expect(deps.document.updateMilestones).not.toHaveBeenCalled();
+      expect(deps.panelEmitter.broadcast).toHaveBeenCalledWith(
+        deps.roomId,
+        expect.objectContaining({
+          panel: "agent",
+          text: expect.stringContaining("ready for verification"),
+        }),
+      );
+      expect(result).toContain("pending verification");
+    });
+  });
+
+  describe("generate_document", () => {
+    it("should generate a document from an accepted negotiation", async () => {
+      const acceptedNeg = {
+        id: "neg_123",
+        roomId: "room-1",
+        status: "accepted",
+        initiator: "alice",
+        responder: "bob",
+        currentProposal: {
+          summary: "Fix boiler",
+          lineItems: [
+            { description: "Labour", amount: 15000, type: "immediate" },
+          ],
+          totalAmount: 15000,
+          currency: "gbp",
+          conditions: [],
+          expiresAt: Date.now() + 30000,
+        },
+        rounds: [],
+        maxRounds: 5,
+        roundTimeoutMs: 30000,
+        totalTimeoutMs: 120000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      (deps.negotiation.getNegotiation as any).mockReturnValue(acceptedNeg);
+      (deps.document.getDocument as any).mockReturnValue({
+        ...((deps.document.generateDocument as any).mock?.results?.[0]
+          ?.value ?? {
+          id: "doc_1",
+          title: "Agreement",
+          content: "# Agreement",
+          negotiationId: "neg_123",
+          parties: [],
+          terms: {} as any,
+          signatures: [],
+          status: "pending_signatures",
+          createdAt: Date.now(),
+        }),
+      });
+
+      const tool = tools.find((t) => t.name === "generate_document")!;
+      const result = await tool.handler({ negotiationId: "neg_123" });
+
+      expect(deps.negotiation.getNegotiation).toHaveBeenCalledWith("neg_123");
+      expect(deps.document.generateDocument).toHaveBeenCalledWith(
+        acceptedNeg,
+        acceptedNeg.currentProposal,
+        expect.arrayContaining([
+          expect.objectContaining({ userId: "alice" }),
+          expect.objectContaining({ userId: "bob" }),
+        ]),
+        expect.any(String),
+      );
+      expect(result).toContain("Document generated");
+    });
+  });
+
+  describe("analyze_and_propose with mixed line item types", () => {
+    it("should handle immediate, escrow, and conditional line items together", async () => {
+      const tool = tools.find((t) => t.name === "analyze_and_propose")!;
+      const result = await tool.handler({
+        summary: "Full plumbing job",
+        lineItems: [
+          { description: "Callout fee", amount: 5000, type: "immediate" },
+          {
+            description: "Pipe repair",
+            amount: 15000,
+            type: "escrow",
+            condition: "On completion of repair",
+          },
+          {
+            description: "Satisfaction bonus",
+            amount: 3000,
+            type: "conditional",
+            condition: "If customer is satisfied",
+          },
+        ],
+        currency: "gbp",
+        conditions: ["Work within 48 hours"],
+      });
+
+      expect(deps.negotiation.createNegotiation).toHaveBeenCalledWith(
+        "alice",
+        "bob",
+        expect.objectContaining({
+          lineItems: expect.arrayContaining([
+            expect.objectContaining({
+              type: "immediate",
+              amount: 5000,
+            }),
+            expect.objectContaining({
+              type: "escrow",
+              amount: 15000,
+              condition: "On completion of repair",
+            }),
+            expect.objectContaining({
+              type: "conditional",
+              amount: 3000,
+              condition: "If customer is satisfied",
+            }),
+          ]),
+          totalAmount: 23000,
+        }),
+      );
+      expect(result).toContain("Proposal created");
+      expect(result).toContain("£230.00"); // 23000 pence
     });
   });
 });

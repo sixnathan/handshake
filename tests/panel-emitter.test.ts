@@ -168,3 +168,65 @@ describe("PanelEmitter Module", () => {
     expect(ws.send).not.toHaveBeenCalled();
   });
 });
+
+describe("PanelEmitter Edge Cases", () => {
+  let pe: PanelEmitter;
+
+  beforeEach(() => {
+    pe = new PanelEmitter();
+  });
+
+  it("should broadcast to room with 0 users without error", () => {
+    const message: PanelMessage = {
+      panel: "status",
+      roomId: "empty-room",
+      users: [],
+      sessionStatus: "active",
+    };
+
+    // Should not throw when broadcasting to a room with no registered users
+    expect(() => pe.broadcast("empty-room", message)).not.toThrow();
+  });
+
+  it("should throw on message that fails JSON.stringify (circular ref)", () => {
+    const ws = createMockWs();
+    pe.registerSocket("alice", ws);
+
+    // PanelEmitter.sendToUser calls JSON.stringify without try/catch,
+    // so a circular reference will throw
+    const circular: any = {
+      panel: "agent",
+      userId: "alice",
+      text: "hi",
+      timestamp: Date.now(),
+    };
+    circular.self = circular;
+
+    expect(() => pe.sendToUser("alice", circular as PanelMessage)).toThrow();
+    expect(ws.send).not.toHaveBeenCalled();
+  });
+
+  it("should clean up room membership when socket closes", () => {
+    const wsAlice = createMockWs();
+    const wsBob = createMockWs();
+    pe.registerSocket("alice", wsAlice);
+    pe.registerSocket("bob", wsBob);
+    pe.setRoom("alice", "room-1");
+    pe.setRoom("bob", "room-1");
+
+    // Alice's socket closes
+    wsAlice.emit("close");
+
+    // Broadcast to room-1 — only Bob should receive, not Alice
+    const message: PanelMessage = {
+      panel: "status",
+      roomId: "room-1",
+      users: ["bob"],
+      sessionStatus: "active",
+    };
+    pe.broadcast("room-1", message);
+
+    expect(wsAlice.send).not.toHaveBeenCalled();
+    expect(wsBob.send).toHaveBeenCalledOnce();
+  });
+});

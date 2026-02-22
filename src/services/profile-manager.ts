@@ -76,6 +76,55 @@ export class ProfileManager implements IProfileManager {
         ? input.monzoAccessToken
         : undefined;
 
+    const trade =
+      typeof input.trade === "string" && input.trade.trim().length > 0
+        ? input.trade.trim().slice(0, 100)
+        : undefined;
+
+    const experienceYears =
+      typeof input.experienceYears === "number" &&
+      input.experienceYears >= 0 &&
+      input.experienceYears <= 100
+        ? Math.round(input.experienceYears)
+        : undefined;
+
+    const certifications = Array.isArray(input.certifications)
+      ? input.certifications
+          .filter(
+            (c): c is string => typeof c === "string" && c.trim().length > 0,
+          )
+          .map((c) => c.trim().slice(0, 200))
+          .slice(0, 20)
+      : undefined;
+
+    const typicalRateRange =
+      input.typicalRateRange &&
+      typeof input.typicalRateRange === "object" &&
+      typeof input.typicalRateRange.min === "number" &&
+      typeof input.typicalRateRange.max === "number" &&
+      input.typicalRateRange.min >= 0 &&
+      input.typicalRateRange.max >= input.typicalRateRange.min &&
+      (["hour", "day", "job"] as const).includes(input.typicalRateRange.unit)
+        ? {
+            min: input.typicalRateRange.min,
+            max: input.typicalRateRange.max,
+            unit: input.typicalRateRange.unit,
+          }
+        : undefined;
+
+    const serviceArea =
+      typeof input.serviceArea === "string" &&
+      input.serviceArea.trim().length > 0
+        ? input.serviceArea.trim().slice(0, 200)
+        : undefined;
+
+    const contextDocuments = Array.isArray(input.contextDocuments)
+      ? input.contextDocuments
+          .filter((d): d is string => typeof d === "string" && d.length > 0)
+          .map((d) => d.slice(0, 5120)) // 5KB per doc
+          .slice(0, 5) // max 5 docs
+      : undefined;
+
     return {
       displayName,
       role,
@@ -89,6 +138,18 @@ export class ProfileManager implements IProfileManager {
       },
       stripeAccountId,
       monzoAccessToken,
+      trade,
+      experienceYears,
+      certifications:
+        certifications && certifications.length > 0
+          ? certifications
+          : undefined,
+      typicalRateRange,
+      serviceArea,
+      contextDocuments:
+        contextDocuments && contextDocuments.length > 0
+          ? contextDocuments
+          : undefined,
     };
   }
 }

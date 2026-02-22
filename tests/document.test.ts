@@ -357,3 +357,158 @@ describe("DocumentService Module", () => {
     });
   });
 });
+
+describe("DocumentService — LLM edge cases", () => {
+  let doc: DocumentService;
+  let mockLLM: ReturnType<typeof makeMockLLM>;
+
+  beforeEach(() => {
+    mockLLM = makeMockLLM("");
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should create document with empty content when LLM returns empty string", async () => {
+    const result = await doc.generateDocument(
+      makeNegotiation(),
+      makeProposal(),
+      makeParties(),
+      "context",
+    );
+
+    expect(result.content).toBe("");
+    expect(result.id).toMatch(/^doc_/);
+    expect(result.status).toBe("pending_signatures");
+  });
+});
+
+describe("DocumentService — milestone extraction", () => {
+  let doc: DocumentService;
+  let mockLLM: ReturnType<typeof makeMockLLM>;
+
+  beforeEach(() => {
+    mockLLM = makeMockLLM();
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should create milestone for escrow item and skip immediate item", () => {
+    const proposal = makeProposal();
+    // lineItems[0] = immediate (Labour), lineItems[1] = escrow (Parts)
+    const milestones = (doc as any).generateMilestones("doc_test_1", proposal);
+
+    expect(milestones).toHaveLength(1);
+    expect(milestones[0].lineItemIndex).toBe(1);
+    expect(milestones[0].documentId).toBe("doc_test_1");
+    expect(milestones[0].description).toBe("Parts");
+    expect(milestones[0].amount).toBe(5000);
+    expect(milestones[0].status).toBe("pending");
+    expect(milestones[0].id).toMatch(/^ms_/);
+  });
+});
+
+describe("DocumentService — updateMilestones", () => {
+  let doc: DocumentService;
+  let mockLLM: ReturnType<typeof makeMockLLM>;
+
+  beforeEach(() => {
+    mockLLM = makeMockLLM();
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should throw for non-existent document", () => {
+    expect(() => doc.updateMilestones("fake_id", [])).toThrow(
+      "Document not found",
+    );
+  });
+});
+
+describe("DocumentService — getDocument for non-existent ID", () => {
+  let doc: DocumentService;
+
+  beforeEach(() => {
+    const mockLLM = makeMockLLM();
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should return undefined for non-existent ID", () => {
+    expect(doc.getDocument("nonexistent")).toBeUndefined();
+  });
+});
+
+describe("DocumentService — factor-based line items", () => {
+  let doc: DocumentService;
+  let mockLLM: ReturnType<typeof makeMockLLM>;
+
+  beforeEach(() => {
+    mockLLM = makeMockLLM();
+    doc = new DocumentService({
+      llmProvider: mockLLM as any,
+      llmModel: "test-model",
+    });
+  });
+
+  it("should include factor details in LLM prompt for range-priced items", async () => {
+    const proposal: AgentProposal = {
+      summary: "Plumbing repair",
+      lineItems: [
+        {
+          description: "Pipe repair",
+          amount: 30000,
+          type: "escrow" as const,
+          minAmount: 20000,
+          maxAmount: 40000,
+          factors: [
+            {
+              name: "Complexity",
+              description: "How complex the pipe work is",
+              impact: "increases" as const,
+            },
+            {
+              name: "Parts",
+              description: "Standard vs specialist parts",
+              impact: "determines" as const,
+            },
+          ],
+        },
+      ],
+      totalAmount: 30000,
+      currency: "gbp",
+      conditions: ["Work within 3 days"],
+      expiresAt: Date.now() + 60000,
+      factorSummary: "The final cost depends on complexity and parts required.",
+    };
+
+    await doc.generateDocument(
+      makeNegotiation(),
+      proposal,
+      makeParties(),
+      "ctx",
+    );
+
+    const msgContent =
+      mockLLM.createMessage.mock.calls[0][0].messages[0].content;
+    expect(msgContent).toContain("Complexity");
+    expect(msgContent).toContain("increases");
+    expect(msgContent).toContain("Parts");
+    expect(msgContent).toContain("determines");
+    expect(msgContent).toContain("How complex the pipe work is");
+    expect(msgContent).toContain("Standard vs specialist parts");
+    expect(msgContent).toContain("£200.00"); // minAmount 20000 / 100
+    expect(msgContent).toContain("£400.00"); // maxAmount 40000 / 100
+    expect(msgContent).toContain("FACTOR SUMMARY");
+    expect(msgContent).toContain(
+      "The final cost depends on complexity and parts required.",
+    );
+  });
+});

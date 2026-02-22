@@ -16,6 +16,10 @@ export class TranscriptionService
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private chunksReceived = 0;
+  private chunksSent = 0;
+  private chunksDropped = 0;
+  private label: string;
 
   constructor(
     private readonly config: {
@@ -23,15 +27,22 @@ export class TranscriptionService
       region: string;
       language: string;
     },
+    label?: string,
   ) {
     super();
+    this.label = label ?? `ts-${Math.random().toString(36).slice(2, 6)}`;
   }
 
   async start(): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      console.log(
+        `[transcription:${this.label}] Already running, skipping start`,
+      );
+      return;
+    }
     this.running = true;
 
-    console.log("[transcription] Connecting to ElevenLabs...");
+    console.log(`[transcription:${this.label}] Connecting to ElevenLabs...`);
     const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&language_code=${this.config.language}&commit_strategy=vad&audio_format=pcm_16000`;
 
     this.ws = new WebSocket(url, {
@@ -54,10 +65,14 @@ export class TranscriptionService
     } catch (err) {
       this.running = false;
       this.ws = null;
+      console.error(
+        `[transcription:${this.label}] Connection failed:`,
+        (err as Error).message,
+      );
       throw err;
     }
 
-    console.log("[transcription] Connected to ElevenLabs");
+    console.log(`[transcription:${this.label}] Connected to ElevenLabs`);
     this.wireHandlers();
     this.reconnectAttempts = 0;
   }
@@ -75,8 +90,22 @@ export class TranscriptionService
   }
 
   feedAudio(chunk: AudioChunk): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.running)
+    this.chunksReceived++;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.running) {
+      this.chunksDropped++;
+      if (this.chunksDropped === 1 || this.chunksDropped % 100 === 0) {
+        console.log(
+          `[transcription:${this.label}] Dropping chunks (total=${this.chunksDropped}, ws=${this.ws ? this.ws.readyState : "null"}, running=${this.running})`,
+        );
+      }
       return;
+    }
+    this.chunksSent++;
+    if (this.chunksSent === 1) {
+      console.log(
+        `[transcription:${this.label}] First chunk sent to ElevenLabs (${chunk.buffer.length} bytes)`,
+      );
+    }
     const base64 = chunk.buffer.toString("base64");
     this.ws.send(
       JSON.stringify({
@@ -90,35 +119,46 @@ export class TranscriptionService
     if (!this.ws) return;
 
     this.ws.on("message", (data: WebSocket.Data) => {
-      const msg = JSON.parse(data.toString());
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        console.warn(
+          `[transcription:${this.label}] Received malformed JSON, ignoring`,
+        );
+        return;
+      }
 
       switch (msg.message_type as string) {
         case "session_started":
-          console.log("[transcription] Session started");
+          console.log(`[transcription:${this.label}] Session started`);
           break;
 
         case "partial_transcript":
           if (msg.text) {
-            console.log(
-              `[transcription] Partial: ${(msg.text as string).slice(0, 50)}`,
-            );
+            const partialText = msg.text as string;
             this.emit("partial", {
-              text: msg.text,
+              text: partialText,
             } satisfies PartialTranscript);
           }
           break;
 
         case "committed_transcript":
           if (msg.text) {
+            const finalText = msg.text as string;
             console.log(
-              `[transcription] Final: ${(msg.text as string).slice(0, 50)}`,
+              `[transcription:${this.label}] Final: ${finalText.slice(0, 50)}`,
             );
-            this.emit("final", { text: msg.text } satisfies FinalTranscript);
+            this.emit("final", { text: finalText } satisfies FinalTranscript);
           }
           break;
 
         case "committed_transcript_with_timestamps":
           if (msg.text) {
+            const tsText = msg.text as string;
+            console.log(
+              `[transcription:${this.label}] Final+ts: ${tsText.slice(0, 50)}`,
+            );
             const words = (
               msg.words as Array<{
                 word: string;
@@ -135,7 +175,7 @@ export class TranscriptionService
             const startTime = words[0]?.start;
             const endTime = words[words.length - 1]?.end;
             this.emit("final", {
-              text: msg.text,
+              text: tsText,
               startTime,
               endTime,
               words,
@@ -146,11 +186,17 @@ export class TranscriptionService
     });
 
     this.ws.on("error", (err: Error) => {
-      console.error("[transcription] WebSocket error:", err.message);
+      console.error(
+        `[transcription:${this.label}] WebSocket error:`,
+        err.message,
+      );
       this.scheduleReconnect();
     });
 
-    this.ws.on("close", () => {
+    this.ws.on("close", (code: number, reason: Buffer) => {
+      console.log(
+        `[transcription:${this.label}] WebSocket closed (code=${code}, reason=${reason.toString()}, sent=${this.chunksSent}, dropped=${this.chunksDropped})`,
+      );
       this.scheduleReconnect();
     });
   }
@@ -159,7 +205,7 @@ export class TranscriptionService
     if (!this.running) return;
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
       console.error(
-        "[transcription] Max reconnect attempts reached, giving up",
+        `[transcription:${this.label}] Max reconnect attempts reached, giving up`,
       );
       return;
     }
@@ -168,6 +214,9 @@ export class TranscriptionService
     }
     const delay = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
+    console.log(
+      `[transcription:${this.label}] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`,
+    );
     this.reconnectTimer = setTimeout(() => {
       void this.reconnect();
     }, delay);

@@ -9,7 +9,7 @@ import { PanelEmitter } from "./services/panel-emitter.js";
 import { ProfileManager } from "./services/profile-manager.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const PUBLIC_DIR = join(__dirname, "..", "public");
+const PUBLIC_DIR = join(__dirname, "..", "frontend", "dist");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -61,6 +61,10 @@ export function startWebServer(config: AppConfig): void {
     // Static files
     const served = await serveStatic(req.url ?? "/", res);
     if (served) return;
+
+    // SPA fallback — serve index.html for any non-API route
+    const spaServed = await serveStatic("/index.html", res);
+    if (spaServed) return;
 
     // 404
     res.writeHead(404, { "Content-Type": "application/json" });

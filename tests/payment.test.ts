@@ -81,14 +81,20 @@ describe("PaymentService Module", () => {
 
       expect(result.success).toBe(true);
       expect(result.paymentIntentId).toBe("pi_test_123");
-      expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith({
-        amount: 15000,
-        currency: "gbp",
-        description: "Boiler repair",
-        transfer_data: { destination: "acct_bob" },
-        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-        confirm: true,
-      });
+      expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
+        {
+          amount: 15000,
+          currency: "gbp",
+          description: "Boiler repair",
+          transfer_data: { destination: "acct_bob" },
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: "never",
+          },
+          confirm: true,
+        },
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
+      );
     });
 
     it("should handle Stripe API errors gracefully", async () => {
@@ -124,7 +130,12 @@ describe("PaymentService Module", () => {
         expect.objectContaining({
           capture_method: "manual",
           description: "Escrow: Parts deposit",
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: "never",
+          },
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
 
@@ -290,6 +301,75 @@ describe("PaymentService Module", () => {
       const result = await payment.releaseEscrow("pi_test_123");
       expect(result.success).toBe(false);
       expect(result.error).toContain("Network error");
+    });
+  });
+
+  describe("escrow state transitions", () => {
+    it("should return error on double-capture of same hold", async () => {
+      await payment.createEscrowHold({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+        recipientAccountId: "acct_bob",
+      });
+
+      const first = await payment.captureEscrow("pi_test_123");
+      expect(first.success).toBe(true);
+
+      const second = await payment.captureEscrow("pi_test_123");
+      expect(second.success).toBe(false);
+      expect(second.error).toContain("already captured");
+    });
+
+    it("should return error on double-release of same hold", async () => {
+      await payment.createEscrowHold({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+        recipientAccountId: "acct_bob",
+      });
+
+      const first = await payment.releaseEscrow("pi_test_123");
+      expect(first.success).toBe(true);
+
+      const second = await payment.releaseEscrow("pi_test_123");
+      expect(second.success).toBe(false);
+      expect(second.error).toContain("already released");
+    });
+
+    it("should return error when capturing after release", async () => {
+      await payment.createEscrowHold({
+        amount: 5000,
+        currency: "gbp",
+        description: "Test",
+        recipientAccountId: "acct_bob",
+      });
+
+      const release = await payment.releaseEscrow("pi_test_123");
+      expect(release.success).toBe(true);
+
+      const capture = await payment.captureEscrow("pi_test_123");
+      expect(capture.success).toBe(false);
+      expect(capture.error).toContain("already released");
+    });
+
+    it("should call Stripe with correct amount for very large payment", async () => {
+      const result = await payment.executePayment({
+        amount: 99999999,
+        currency: "gbp",
+        description: "Very large payment",
+        recipientAccountId: "acct_bob",
+      });
+
+      expect(result.success).toBe(true);
+      expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 99999999,
+          currency: "gbp",
+          description: "Very large payment",
+        }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
+      );
     });
   });
 });

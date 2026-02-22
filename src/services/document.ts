@@ -6,6 +6,8 @@ import type {
   DocumentParty,
   DocumentSignature,
   LegalDocument,
+  Milestone,
+  MilestoneId,
   Negotiation,
   UserId,
 } from "../types.js";
@@ -18,22 +20,32 @@ The document MUST include these sections:
 2. **DATE** — Current date
 3. **PARTIES** — Full names and roles of each party
 4. **RECITALS** — Background context (what was discussed)
-5. **TERMS** — Numbered list of agreed terms, including:
-   - Description of each line item
-   - Amounts in the agreed currency
-   - Payment type (immediate, escrow, or conditional)
-   - Any conditions for escrow items
-6. **PAYMENT SCHEDULE** — When and how payments will be made
-7. **CONDITIONS** — Any conditions that must be met
-8. **DISPUTE RESOLUTION** — How disputes will be handled
-9. **SIGNATURES** — Signature lines for each party (placeholder format)
+5. **PRICING STRUCTURE** — For each line item:
+   - Description and payment type (immediate, escrow, or conditional)
+   - For fixed-price items: the exact amount
+   - For range-priced items: the range (e.g., £500.00–£1,000.00) and the factors that determine the final price within that range
+   - For each factor: name, what it measures, and whether it increases/decreases/determines the price
+6. **FACTOR SUMMARY** — A dedicated plain-English section explaining what determines the cost. Write this as a paragraph that a non-expert can understand. Example: "The final repair cost depends on three factors: the complexity of the pipe work (more complex = higher cost), the parts required (standard vs specialist), and time on-site (billed per hour above the minimum)."
+7. **PAYMENT SCHEDULE** — How payments work:
+   - Immediate items: charged on signing
+   - Escrow items: the MAXIMUM amount is held on signing; actual amount captured upon completion based on the factors
+   - Conditional items: triggered when conditions are met
+8. **CONDITIONS & MILESTONES** — For escrow and conditional line items, define clear milestones:
+   - Specific deliverable or completion criteria
+   - Verification method
+   - Linked payment amount (or range)
+   - Expected timeline
+9. **DISPUTE RESOLUTION** — How disputes will be handled
+10. **SIGNATURES** — Signature lines for each party (placeholder format)
 
 FORMATTING RULES:
 - Use Markdown formatting
 - Amounts should be formatted with currency symbol (e.g., £500.00)
+- For range items, use the format £MIN–£MAX
 - Be precise and unambiguous
 - Use simple language, avoid unnecessary legal jargon
 - The document should be readable by non-lawyers
+- The FACTOR SUMMARY section should be prominent and easy to understand
 
 Output ONLY the document content in Markdown. No preamble or explanation.`;
 
@@ -63,7 +75,7 @@ export class DocumentService extends EventEmitter implements IDocumentService {
 
     const response = await this.config.llmProvider.createMessage({
       model: this.config.llmModel,
-      maxTokens: 2000,
+      maxTokens: 3000,
       system: DOCUMENT_GENERATION_PROMPT,
       messages: [
         {
@@ -147,6 +159,41 @@ export class DocumentService extends EventEmitter implements IDocumentService {
     return this.documents.get(documentId);
   }
 
+  updateMilestones(documentId: DocumentId, milestones: Milestone[]): void {
+    const doc = this.documents.get(documentId);
+    if (!doc) {
+      throw new Error("Document not found");
+    }
+    const updated: LegalDocument = { ...doc, milestones };
+    this.documents.set(documentId, updated);
+  }
+
+  private generateMilestones(
+    documentId: DocumentId,
+    proposal: AgentProposal,
+  ): Milestone[] {
+    const milestones: Milestone[] = [];
+    proposal.lineItems.forEach((li, index) => {
+      if (li.type === "escrow" || li.type === "conditional") {
+        const milestoneId: MilestoneId =
+          "ms_" +
+          Date.now().toString(36) +
+          "_" +
+          Math.random().toString(36).slice(2, 6);
+        milestones.push({
+          id: milestoneId,
+          documentId,
+          lineItemIndex: index,
+          description: li.description,
+          amount: li.maxAmount ?? li.amount,
+          condition: li.condition ?? `Completion of: ${li.description}`,
+          status: "pending",
+        });
+      }
+    });
+    return milestones;
+  }
+
   private buildDocumentRequest(
     negotiation: Negotiation,
     proposal: AgentProposal,
@@ -155,11 +202,25 @@ export class DocumentService extends EventEmitter implements IDocumentService {
   ): string {
     const partyList = parties.map((p) => `- ${p.name} (${p.role})`).join("\n");
     const lineItems = proposal.lineItems
-      .map(
-        (li) =>
-          `- ${li.description}: £${(li.amount / 100).toFixed(2)} (${li.type}${li.condition ? `, condition: ${li.condition}` : ""})`,
-      )
+      .map((li) => {
+        let line = `- ${li.description}: `;
+        if (li.minAmount !== undefined && li.maxAmount !== undefined) {
+          line += `£${(li.minAmount / 100).toFixed(2)}–£${(li.maxAmount / 100).toFixed(2)} (${li.type}`;
+        } else {
+          line += `£${(li.amount / 100).toFixed(2)} (${li.type}`;
+        }
+        if (li.condition) line += `, condition: ${li.condition}`;
+        line += ")";
+        if (li.factors && li.factors.length > 0) {
+          line += `\n  Factors: ${li.factors.map((f) => `${f.name} [${f.impact}]: ${f.description}`).join("; ")}`;
+        }
+        return line;
+      })
       .join("\n");
+
+    const factorSection = proposal.factorSummary
+      ? `\nFACTOR SUMMARY:\n${proposal.factorSummary}\n`
+      : "";
 
     return `Generate a binding agreement document for the following:
 
@@ -168,11 +229,11 @@ ${partyList}
 
 AGREED TERMS:
 Summary: ${proposal.summary}
-Total: £${(proposal.totalAmount / 100).toFixed(2)} ${proposal.currency.toUpperCase()}
+Total (maximum): £${(proposal.totalAmount / 100).toFixed(2)} ${proposal.currency.toUpperCase()}
 
 LINE ITEMS:
 ${lineItems}
-
+${factorSection}
 CONDITIONS:
 ${proposal.conditions.length > 0 ? proposal.conditions.map((c) => `- ${c}`).join("\n") : "None"}
 
