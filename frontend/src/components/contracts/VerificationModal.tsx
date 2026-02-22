@@ -14,6 +14,7 @@ import {
   type VerificationStep,
 } from "@/stores/verification-store";
 import { cn, currencySymbol } from "@/lib/utils";
+import { OUTCOME_CONFIG } from "@/lib/milestone-config";
 import { useDocumentStore } from "@/stores/document-store";
 
 interface VerificationModalProps {
@@ -168,28 +169,7 @@ function ResultDisplay({
   >;
   currency: string;
 }) {
-  const outcomeConfig = {
-    passed: {
-      label: "PASSED",
-      color: "text-accent-green",
-      bg: "bg-accent-green/10",
-      border: "border-accent-green/30",
-    },
-    failed: {
-      label: "FAILED",
-      color: "text-accent-red",
-      bg: "bg-accent-red/10",
-      border: "border-accent-red/30",
-    },
-    disputed: {
-      label: "DISPUTED",
-      color: "text-accent-orange",
-      bg: "bg-accent-orange/10",
-      border: "border-accent-orange/30",
-    },
-  };
-
-  const cfg = outcomeConfig[result.outcome];
+  const cfg = OUTCOME_CONFIG[result.outcome];
 
   return (
     <div className="space-y-4">

@@ -53,3 +53,24 @@ export const PAYMENT_TYPE_CONFIG = {
     border: "border-accent-orange/20",
   },
 } as const;
+
+export const OUTCOME_CONFIG = {
+  passed: {
+    label: "Passed",
+    color: "text-accent-green",
+    bg: "bg-accent-green/10",
+    border: "border-accent-green/30",
+  },
+  failed: {
+    label: "Failed",
+    color: "text-accent-red",
+    bg: "bg-accent-red/10",
+    border: "border-accent-red/30",
+  },
+  disputed: {
+    label: "Disputed",
+    color: "text-accent-orange",
+    bg: "bg-accent-orange/10",
+    border: "border-accent-orange/30",
+  },
+} as const;

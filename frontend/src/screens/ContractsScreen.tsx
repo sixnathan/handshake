@@ -279,7 +279,9 @@ function ContractCard({
                         ? "border-accent-green/20 bg-accent-green/5"
                         : ms.status === "failed"
                           ? "border-accent-red/20 bg-accent-red/5"
-                          : "border-separator bg-surface-tertiary",
+                          : ms.status === "disputed"
+                            ? "border-accent-orange/20 bg-accent-orange/5"
+                            : "border-separator bg-surface-tertiary",
                     )}
                   >
                     {/* Milestone header */}

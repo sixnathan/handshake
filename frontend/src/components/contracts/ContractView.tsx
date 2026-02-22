@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { LegalDocument, Milestone } from "@/stores/document-store";
 import { cn, currencySymbol, markdownToHtml } from "@/lib/utils";
-import { MILESTONE_STATUS, PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
+import {
+  MILESTONE_STATUS,
+  PAYMENT_TYPE_CONFIG,
+  OUTCOME_CONFIG,
+} from "@/lib/milestone-config";
 import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import {
   CheckCircle2,
@@ -682,27 +686,6 @@ function SignaturesSection({
 }
 
 // ── Verification result inline badge ─────────────────
-
-const OUTCOME_CONFIG = {
-  passed: {
-    label: "Passed",
-    color: "text-accent-green",
-    bg: "bg-accent-green/10",
-    border: "border-accent-green/30",
-  },
-  failed: {
-    label: "Failed",
-    color: "text-accent-red",
-    bg: "bg-accent-red/10",
-    border: "border-accent-red/30",
-  },
-  disputed: {
-    label: "Disputed",
-    color: "text-accent-orange",
-    bg: "bg-accent-orange/10",
-    border: "border-accent-orange/30",
-  },
-} as const;
 
 function VerificationResultBadge({
   result,

@@ -183,7 +183,9 @@ export function BottomSheet({ panelWs }: BottomSheetProps) {
             disabled={alreadySigned || isFullySigned}
             onClick={handleSign}
           >
-            {alreadySigned ? "Signed \u2713" : "Sign Agreement"}
+            {alreadySigned || isFullySigned
+              ? "Signed \u2713"
+              : "Sign Agreement"}
           </Button>
           <Button
             variant="outline"

@@ -15,12 +15,7 @@ export function CriterionCheckbox({
   const iconSize = size === "sm" ? "size-2.5" : "size-3";
 
   return (
-    <div
-      className="flex items-start gap-2"
-      role="checkbox"
-      aria-checked={checked}
-      aria-label={label}
-    >
+    <div className="flex items-start gap-2">
       <span
         className={cn(
           "mt-0.5 flex shrink-0 items-center justify-center rounded border transition-colors",
