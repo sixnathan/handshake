@@ -33,6 +33,7 @@ export class PaymentService implements IPaymentService {
           destination: request.recipientAccountId,
         },
         payment_method: "pm_card_visa",
+        payment_method_types: ["card"],
         confirm: true,
       };
 
@@ -71,6 +72,7 @@ export class PaymentService implements IPaymentService {
       },
       capture_method: "manual",
       payment_method: "pm_card_visa",
+      payment_method_types: ["card"],
       confirm: true,
     };
 
