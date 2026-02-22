@@ -14,7 +14,7 @@ import {
   useVerificationStore,
   type VerificationResult,
 } from "@/stores/verification-store";
-import { derivePeerName } from "@/lib/utils";
+import { derivePeerName, currencySymbol } from "@/lib/utils";
 import { saveContract } from "@/hooks/use-profile";
 
 // ── Timeline filter: only important events ────
@@ -328,7 +328,7 @@ function handlePaymentReceipt(msg: Record<string, unknown>): void {
   const description = (msg.description as string) ?? "Payment";
   const currency = (msg.currency as string) ?? "gbp";
 
-  const symbol = currency === "gbp" ? "\u00A3" : "$";
+  const symbol = currencySymbol(currency);
   const type: TimelineNodeType = status === "succeeded" ? "pay" : "reject";
   let text = `Payment ${status}: ${symbol}${(amount / 100).toFixed(2)} — ${description}`;
   if (text.length > 100) text = text.slice(0, 97) + "...";

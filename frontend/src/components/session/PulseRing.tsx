@@ -5,16 +5,7 @@ import { cn } from "@/lib/utils";
 function useRingColor(): { border: string; bg: string; text: string } {
   const status = useSessionStore((s) => s.sessionStatus);
   const hasDoc = useDocumentStore((s) => s.currentDocument !== null);
-  const isFullySigned = useDocumentStore(
-    (s) => s.currentDocument?.status === "fully_signed",
-  );
 
-  if (isFullySigned)
-    return {
-      border: "border-accent-green",
-      bg: "bg-accent-green",
-      text: "text-accent-green",
-    };
   if (hasDoc)
     return {
       border: "border-accent-green",

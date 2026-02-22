@@ -13,6 +13,17 @@ import type {
 } from "../types.js";
 import type { IDocumentService } from "../interfaces.js";
 
+function currencySymbol(code: string): string {
+  switch (code.toLowerCase()) {
+    case "usd":
+      return "$";
+    case "eur":
+      return "\u20AC";
+    default:
+      return "\u00A3";
+  }
+}
+
 const DOCUMENT_GENERATION_PROMPT = `You are a legal document generator. Create a CONCISE, professional agreement in Markdown format.
 
 IMPORTANT: Keep it SHORT — under 400 words. The structured data (line items, milestones, signatures) is displayed separately in the app UI. This document is supplementary legal text only.
@@ -94,9 +105,11 @@ export class DocumentService extends EventEmitter implements IDocumentService {
       createdAt: Date.now(),
     };
 
+    const milestones = this.generateMilestones(id, proposal);
     const pending: LegalDocument = {
       ...doc,
       status: "pending_signatures" as const,
+      milestones: milestones.length > 0 ? milestones : undefined,
     };
     this.documents.set(id, pending);
     this.emit("document:generated", pending);
@@ -186,14 +199,15 @@ export class DocumentService extends EventEmitter implements IDocumentService {
     parties: DocumentParty[],
     conversationContext: string,
   ): string {
+    const sym = currencySymbol(proposal.currency);
     const partyList = parties.map((p) => `- ${p.name} (${p.role})`).join("\n");
     const lineItems = proposal.lineItems
       .map((li) => {
         let line = `- ${li.description}: `;
         if (li.minAmount !== undefined && li.maxAmount !== undefined) {
-          line += `£${(li.minAmount / 100).toFixed(2)}–£${(li.maxAmount / 100).toFixed(2)} (${li.type}`;
+          line += `${sym}${(li.minAmount / 100).toFixed(2)}–${sym}${(li.maxAmount / 100).toFixed(2)} (${li.type}`;
         } else {
-          line += `£${(li.amount / 100).toFixed(2)} (${li.type}`;
+          line += `${sym}${(li.amount / 100).toFixed(2)} (${li.type}`;
         }
         if (li.condition) line += `, condition: ${li.condition}`;
         line += ")";
@@ -213,7 +227,7 @@ export class DocumentService extends EventEmitter implements IDocumentService {
         ? `\nMILESTONES:\n${proposal.milestones
             .map(
               (m, i) =>
-                `Milestone ${i + 1}: ${m.title}\n  Deliverables: ${m.deliverables.join(", ")}\n  Verification: ${m.verificationMethod}\n  Criteria: ${m.completionCriteria.join("; ")}\n  Amount: £${(m.amount / 100).toFixed(2)}\n  Timeline: ${m.expectedTimeline ?? "TBD"}`,
+                `Milestone ${i + 1}: ${m.title}\n  Deliverables: ${m.deliverables.join(", ")}\n  Verification: ${m.verificationMethod}\n  Criteria: ${m.completionCriteria.join("; ")}\n  Amount: ${sym}${(m.amount / 100).toFixed(2)}\n  Timeline: ${m.expectedTimeline ?? "TBD"}`,
             )
             .join("\n")}\n`
         : "\nMILESTONES:\nNone — immediate payment only\n";
@@ -225,7 +239,7 @@ ${partyList}
 
 AGREED TERMS:
 Summary: ${proposal.summary}
-Total (maximum): £${(proposal.totalAmount / 100).toFixed(2)} ${proposal.currency.toUpperCase()}
+Total (maximum): ${sym}${(proposal.totalAmount / 100).toFixed(2)} ${proposal.currency.toUpperCase()}
 
 LINE ITEMS:
 ${lineItems}

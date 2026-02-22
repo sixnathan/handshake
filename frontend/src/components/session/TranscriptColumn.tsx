@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TranscriptBubble } from "./TranscriptBubble";
 import { useTranscriptStore } from "@/stores/transcript-store";
-import { useShallow } from "zustand/react/shallow";
 
 interface TranscriptColumnProps {
   label: string;
@@ -10,8 +9,8 @@ interface TranscriptColumnProps {
 }
 
 export function TranscriptColumn({ label, isLocal }: TranscriptColumnProps) {
-  const allEntries = useTranscriptStore(useShallow((s) => s.entries));
-  const partialsMap = useTranscriptStore(useShallow((s) => s.partials));
+  const allEntries = useTranscriptStore((s) => s.entries);
+  const partialsMap = useTranscriptStore((s) => s.partials);
 
   const entries = useMemo(
     () => allEntries.filter((e) => e.isLocal === isLocal),
