@@ -6,7 +6,6 @@ import { MILESTONE_STATUS, PAYMENT_TYPE_CONFIG } from "@/lib/milestone-config";
 import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import {
   CheckCircle2,
-  Circle,
   Clock,
   Shield,
   ChevronDown,
@@ -84,17 +83,11 @@ export function ContractView({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
             Conditions
           </h3>
-          <ul className="space-y-1.5">
+          <div className="space-y-1.5">
             {doc.terms.conditions.map((c, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-2 text-sm text-text-secondary"
-              >
-                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-text-tertiary" />
-                {c}
-              </li>
+              <CriterionCheckbox key={i} label={c} checked={isFullySigned} />
             ))}
-          </ul>
+          </div>
         </section>
       )}
 
@@ -238,17 +231,36 @@ function ContractHeader({
   );
 }
 
+const PARTY_COLORS = [
+  "bg-accent-blue",
+  "bg-accent-green",
+  "bg-accent-orange",
+  "bg-accent-purple",
+] as const;
+
 function PartiesSection({ doc }: { doc: LegalDocument }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-separator bg-surface-tertiary p-3">
       <Users className="size-4 shrink-0 text-text-tertiary" />
       <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {doc.parties.map((p) => (
-          <div key={p.userId} className="flex items-center gap-1.5">
-            <span className="text-sm font-medium text-text-primary">
-              {p.name}
+        {doc.parties.map((p, i) => (
+          <div key={p.userId} className="flex items-center gap-2">
+            <span
+              className={cn(
+                "flex size-6 items-center justify-center rounded-full text-[10px] font-bold text-white",
+                PARTY_COLORS[i % PARTY_COLORS.length],
+              )}
+            >
+              {p.name.charAt(0).toUpperCase()}
             </span>
-            <span className="text-xs text-text-tertiary">({p.role})</span>
+            <div>
+              <span className="text-sm font-medium text-text-primary">
+                {p.name}
+              </span>
+              <span className="ml-1.5 text-xs text-text-tertiary">
+                {p.role}
+              </span>
+            </div>
           </div>
         ))}
       </div>
@@ -570,20 +582,42 @@ function SignaturesSection({
         Signatures
       </h3>
       <div className="space-y-2">
-        {doc.parties.map((party) => {
+        {doc.parties.map((party, i) => {
           const sig = doc.signatures.find((s) => s.userId === party.userId);
           const signed = !!sig;
 
           return (
             <div
               key={party.userId}
-              className="flex items-center gap-3 rounded-lg border border-separator bg-surface-tertiary p-3"
-            >
-              {signed ? (
-                <CheckCircle2 className="size-4 shrink-0 text-accent-green" />
-              ) : (
-                <Circle className="size-4 shrink-0 text-text-tertiary" />
+              className={cn(
+                "flex items-center gap-3 rounded-lg border p-3",
+                signed
+                  ? "border-accent-green/20 bg-accent-green/5"
+                  : "border-separator bg-surface-tertiary",
               )}
+            >
+              <span
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-full text-[11px] font-bold text-white",
+                  signed
+                    ? "bg-accent-green"
+                    : PARTY_COLORS[i % PARTY_COLORS.length],
+                )}
+              >
+                {signed ? (
+                  <svg
+                    className="size-3.5"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                ) : (
+                  party.name.charAt(0).toUpperCase()
+                )}
+              </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-text-primary">
                   {party.name}
@@ -591,7 +625,7 @@ function SignaturesSection({
                 <p className="text-xs text-text-tertiary">{party.role}</p>
               </div>
               {signed ? (
-                <span className="text-xs text-accent-green">
+                <span className="text-xs font-medium text-accent-green">
                   Signed{" "}
                   {new Date(sig!.signedAt).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -611,7 +645,7 @@ function SignaturesSection({
       {/* Sign button */}
       {!readOnly && !isFullySigned && onSign && (
         <Button
-          className="mt-3 bg-accent-green text-white hover:bg-accent-green/90"
+          className="mt-3 w-full bg-accent-green text-white hover:bg-accent-green/90"
           disabled={alreadySigned}
           onClick={onSign}
         >

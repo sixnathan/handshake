@@ -61,9 +61,14 @@ export function ContractsScreen() {
         >
           <ArrowLeft className="size-4" />
         </Button>
-        <h1 className="flex-1 text-xl font-bold text-text-primary">
-          My Contracts
-        </h1>
+        <div className="flex flex-1 items-center gap-2">
+          <h1 className="text-xl font-bold text-text-primary">My Contracts</h1>
+          {contractList.length > 0 && (
+            <span className="inline-flex items-center rounded-full bg-accent-blue/10 px-2 py-0.5 text-xs font-medium text-accent-blue">
+              {contractList.length}
+            </span>
+          )}
+        </div>
         {contractList.length > 0 && (
           <Button
             variant="outline"
