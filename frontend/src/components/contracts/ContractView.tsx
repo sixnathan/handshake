@@ -432,7 +432,18 @@ function MilestoneCard({
   const StatusIcon = status.icon;
 
   return (
-    <div className="rounded-xl border border-separator bg-surface-tertiary p-4">
+    <div
+      className={cn(
+        "rounded-xl border p-4 transition-colors",
+        ms.status === "completed"
+          ? "border-accent-green/20 bg-accent-green/5"
+          : ms.status === "failed"
+            ? "border-accent-red/20 bg-accent-red/5"
+            : ms.status === "disputed"
+              ? "border-accent-orange/20 bg-accent-orange/5"
+              : "border-separator bg-surface-tertiary",
+      )}
+    >
       {/* Title row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2.5">
