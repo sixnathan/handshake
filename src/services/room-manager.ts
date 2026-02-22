@@ -672,7 +672,9 @@ export class RoomManager implements IRoomManager {
   }
 
   private handleTrigger(room: Room, event: TriggerEvent): void {
-    console.log(`[room] Trigger detected: ${event.type} in room ${room.id}`);
+    console.log(
+      `[room] handleTrigger ENTERED: ${event.type} in room ${room.id}, slots=${room.slots.size}, paired=${room.paired}`,
+    );
 
     for (const slot of room.slots.values()) {
       slot.session.setStatus("negotiating");
@@ -716,11 +718,20 @@ export class RoomManager implements IRoomManager {
     }
 
     const initiatorSlot = room.slots.get(initiatorId);
-    if (!initiatorSlot) return;
+    if (!initiatorSlot) {
+      console.error(`[room] No slot found for initiator ${initiatorId}!`);
+      return;
+    }
 
     const conversationContext = initiatorSlot.session.getTranscriptText();
+    console.log(
+      `[room] Calling startNegotiation on agent for ${initiatorId}, context length=${conversationContext.length}`,
+    );
     initiatorSlot.agent
       .startNegotiation(event, conversationContext)
+      .then(() =>
+        console.log(`[room] startNegotiation resolved for ${initiatorId}`),
+      )
       .catch((err) => console.error("[room] Start negotiation failed:", err));
   }
 

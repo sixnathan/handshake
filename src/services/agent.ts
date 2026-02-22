@@ -258,7 +258,13 @@ export class AgentService extends EventEmitter implements IAgentService {
     trigger: TriggerEvent,
     conversationContext: string,
   ): Promise<void> {
-    if (!this.running) return;
+    console.log(
+      `[agent] startNegotiation called, running=${this.running}, processing=${this.processing}, tools=${this.tools.length}`,
+    );
+    if (!this.running) {
+      console.log("[agent] startNegotiation: NOT running, returning early");
+      return;
+    }
 
     this.negotiationActive = true;
     this.transcriptBatch = [];
@@ -422,6 +428,10 @@ Inform your user that the negotiation was not successful.`;
         input_schema: t.parameters,
       }));
 
+      console.log(
+        `[agent] LLM call starting: model=${this.config.model}, messages=${this.messages.length}, tools=${llmTools.length}`,
+      );
+      const llmStart = Date.now();
       const response = await this.config.provider.createMessage({
         model: this.config.model,
         maxTokens: this.config.maxTokens,
@@ -429,6 +439,9 @@ Inform your user that the negotiation was not successful.`;
         messages: this.messages,
         tools: llmTools.length > 0 ? llmTools : undefined,
       });
+      console.log(
+        `[agent] LLM call completed in ${Date.now() - llmStart}ms, stopReason=${response.stopReason}, blocks=${response.content.length}`,
+      );
 
       this.messages.push({ role: "assistant", content: response.content });
 
