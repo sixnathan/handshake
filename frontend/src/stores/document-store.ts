@@ -177,7 +177,7 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
 
     showBottomSheet: () => set({ bottomSheetVisible: true }),
     hideBottomSheet: () => set({ bottomSheetVisible: false }),
-    showOverlay: () => set({ overlayVisible: true }),
+    showOverlay: () => set({ overlayVisible: true, bottomSheetVisible: false }),
     hideOverlay: () => set({ overlayVisible: false }),
     reset: () =>
       set({
