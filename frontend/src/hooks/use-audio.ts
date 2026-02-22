@@ -16,7 +16,18 @@ export function useAudioWebSocket() {
   }, [audioRelay]);
 
   useEffect(() => {
+    const wasMuted = micMutedRef.current;
     micMutedRef.current = micMuted;
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (micMuted && !wasMuted) {
+        // Mute → flush pending transcription
+        wsRef.current.send(JSON.stringify({ type: "mute" }));
+      } else if (!micMuted && wasMuted) {
+        // Unmute → tell server to prepare for fresh audio
+        wsRef.current.send(JSON.stringify({ type: "unmute" }));
+      }
+    }
   }, [micMuted]);
 
   useEffect(() => {
@@ -113,10 +124,28 @@ async function startMicrophone(
     const source = audioContext.createMediaStreamSource(stream);
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
+    let frameCount = 0;
     processor.onaudioprocess = (event) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (micMutedRef.current) return;
       const raw = event.inputBuffer.getChannelData(0);
+
+      // Log audio levels periodically to diagnose *static* transcriptions
+      frameCount++;
+      if (frameCount % 50 === 1) {
+        let maxAbs = 0;
+        let rms = 0;
+        for (let i = 0; i < raw.length; i++) {
+          const v = Math.abs(raw[i]!);
+          if (v > maxAbs) maxAbs = v;
+          rms += raw[i]! * raw[i]!;
+        }
+        rms = Math.sqrt(rms / raw.length);
+        console.log(
+          `[audio] frame=${frameCount} peak=${maxAbs.toFixed(4)} rms=${rms.toFixed(4)} rate=${actualRate} len=${raw.length}`,
+        );
+      }
+
       const resampled = resampleTo16k(raw, actualRate);
       const int16 = new Int16Array(resampled.length);
       for (let i = 0; i < resampled.length; i++) {
@@ -127,7 +156,12 @@ async function startMicrophone(
     };
 
     source.connect(processor);
-    processor.connect(audioContext.destination);
+    // Connect to a silent gain node — ScriptProcessor needs a destination
+    // to keep running, but we don't want mic audio leaking to speakers
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+    silentGain.connect(audioContext.destination);
+    processor.connect(silentGain);
   } catch (err) {
     console.error("Microphone error:", err);
     useSessionStore.getState().setSessionStatus("Microphone access denied");

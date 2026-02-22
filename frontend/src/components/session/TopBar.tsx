@@ -34,7 +34,7 @@ export function TopBar() {
     <div className="flex items-center border-b border-separator bg-surface-secondary px-5 py-3">
       {/* Left: room ID + status dot + peer name */}
       <div className="flex flex-1 items-center gap-3">
-        <span className="rounded bg-surface-tertiary px-1.5 py-0.5 font-mono text-xs text-text-tertiary">
+        <span className="hidden rounded bg-surface-tertiary px-1.5 py-0.5 font-mono text-xs text-text-tertiary md:inline">
           {roomId}
         </span>
         <div
@@ -55,8 +55,8 @@ export function TopBar() {
         </span>
       </div>
 
-      {/* Right: mic mute + audio toggle + contract + details */}
-      <div className="flex flex-1 items-center justify-end gap-2">
+      {/* Right: mic mute + audio toggle + contract + details (desktop only) */}
+      <div className="hidden flex-1 items-center justify-end gap-2 md:flex">
         <Button
           variant="outline"
           size="icon"

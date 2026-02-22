@@ -20,6 +20,21 @@ export class TranscriptionService
   private chunksSent = 0;
   private chunksDropped = 0;
   private label: string;
+  private lastPartialText: string | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly KEEPALIVE_INTERVAL_MS = 5000;
+
+  /**
+   * Noise artifact pattern — ElevenLabs Scribe sometimes transcribes background
+   * noise as bracketed/asterisked labels like *static*, [noise], *silence*, etc.
+   * We filter these out to keep transcripts clean.
+   */
+  private static readonly NOISE_PATTERN =
+    /^[\s*[\]()]*(?:static|noise|silence|background noise|inaudible|unintelligible|music|applause|laughter|cough|coughing|breathing|sigh|sighing|clicks?)[\s*[\]()]*$/i;
+
+  private static isNoise(text: string): boolean {
+    return TranscriptionService.NOISE_PATTERN.test(text.trim());
+  }
 
   constructor(
     private readonly config: {
@@ -41,6 +56,9 @@ export class TranscriptionService
       return;
     }
     this.running = true;
+    this.chunksSent = 0;
+    this.chunksDropped = 0;
+    this.chunksReceived = 0;
 
     console.log(`[transcription:${this.label}] Connecting to ElevenLabs...`);
     const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&language_code=${this.config.language}&commit_strategy=vad&audio_format=pcm_16000`;
@@ -75,18 +93,67 @@ export class TranscriptionService
     console.log(`[transcription:${this.label}] Connected to ElevenLabs`);
     this.wireHandlers();
     this.reconnectAttempts = 0;
+    this.startKeepalive();
   }
 
   async stop(): Promise<void> {
     this.running = false;
+    this.stopKeepalive();
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.emitOrphanedPartial();
     if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) {
       this.ws.close();
     }
     this.ws = null;
+  }
+
+  flush(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.running) {
+      console.log(
+        `[transcription:${this.label}] flush() skipped (ws=${this.ws ? this.ws.readyState : "null"}, running=${this.running})`,
+      );
+      // Even if WS is down, emit the last partial as a synthetic final
+      this.emitOrphanedPartial();
+      return;
+    }
+    console.log(`[transcription:${this.label}] Sending commit to ElevenLabs`);
+    // ElevenLabs Scribe v2: send a zero-length audio chunk with commit=true
+    this.ws.send(
+      JSON.stringify({
+        message_type: "input_audio_chunk",
+        audio_base_64: "",
+        commit: true,
+      }),
+    );
+  }
+
+  /**
+   * Called when user unmutes. Stops the silence keepalive and commits any
+   * buffered silence so ElevenLabs VAD gets a clean transition to real speech.
+   */
+  resumeFromMute(): void {
+    console.log(
+      `[transcription:${this.label}] Resuming from mute — flushing silence`,
+    );
+    // Stop keepalive so silence frames don't interleave with real audio
+    this.stopKeepalive();
+
+    // Commit any buffered silence so VAD resets for fresh voice detection
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.running) {
+      this.ws.send(
+        JSON.stringify({
+          message_type: "input_audio_chunk",
+          audio_base_64: "",
+          commit: true,
+        }),
+      );
+    }
+
+    // Restart keepalive as a safety net (will be preempted by real audio chunks)
+    this.startKeepalive();
   }
 
   feedAudio(chunk: AudioChunk): void {
@@ -115,6 +182,49 @@ export class TranscriptionService
     );
   }
 
+  /**
+   * Sends a tiny silent audio frame every 5s to prevent ElevenLabs from
+   * closing the WebSocket during mute periods (their session times out
+   * after ~15-30s of no audio).
+   */
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      // 160 bytes = 10ms of silent 16kHz 16-bit PCM
+      const silence = Buffer.alloc(320);
+      this.ws.send(
+        JSON.stringify({
+          message_type: "input_audio_chunk",
+          audio_base_64: silence.toString("base64"),
+        }),
+      );
+    }, TranscriptionService.KEEPALIVE_INTERVAL_MS);
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveTimer !== null) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
+  private emitOrphanedPartial(): void {
+    if (
+      this.lastPartialText &&
+      this.lastPartialText.trim() &&
+      !TranscriptionService.isNoise(this.lastPartialText)
+    ) {
+      console.log(
+        `[transcription:${this.label}] Promoting orphaned partial as final: ${this.lastPartialText.slice(0, 50)}`,
+      );
+      this.emit("final", {
+        text: this.lastPartialText,
+      } satisfies FinalTranscript);
+    }
+    this.lastPartialText = null;
+  }
+
   private wireHandlers(): void {
     if (!this.ws) return;
 
@@ -137,6 +247,8 @@ export class TranscriptionService
         case "partial_transcript":
           if (msg.text) {
             const partialText = msg.text as string;
+            if (TranscriptionService.isNoise(partialText)) break;
+            this.lastPartialText = partialText;
             this.emit("partial", {
               text: partialText,
             } satisfies PartialTranscript);
@@ -146,6 +258,8 @@ export class TranscriptionService
         case "committed_transcript":
           if (msg.text) {
             const finalText = msg.text as string;
+            this.lastPartialText = null;
+            if (TranscriptionService.isNoise(finalText)) break;
             console.log(
               `[transcription:${this.label}] Final: ${finalText.slice(0, 50)}`,
             );
@@ -156,6 +270,8 @@ export class TranscriptionService
         case "committed_transcript_with_timestamps":
           if (msg.text) {
             const tsText = msg.text as string;
+            this.lastPartialText = null;
+            if (TranscriptionService.isNoise(tsText)) break;
             console.log(
               `[transcription:${this.label}] Final+ts: ${tsText.slice(0, 50)}`,
             );
@@ -182,6 +298,13 @@ export class TranscriptionService
             } satisfies FinalTranscript);
           }
           break;
+
+        case "error":
+          console.error(
+            `[transcription:${this.label}] ElevenLabs error:`,
+            JSON.stringify(msg),
+          );
+          break;
       }
     });
 
@@ -190,6 +313,7 @@ export class TranscriptionService
         `[transcription:${this.label}] WebSocket error:`,
         err.message,
       );
+      this.emitOrphanedPartial();
       this.scheduleReconnect();
     });
 
@@ -197,6 +321,7 @@ export class TranscriptionService
       console.log(
         `[transcription:${this.label}] WebSocket closed (code=${code}, reason=${reason.toString()}, sent=${this.chunksSent}, dropped=${this.chunksDropped})`,
       );
+      this.emitOrphanedPartial();
       this.scheduleReconnect();
     });
   }
@@ -223,15 +348,21 @@ export class TranscriptionService
   }
 
   private async reconnect(): Promise<void> {
+    this.stopKeepalive();
     this.ws = null;
+    // Set running=false so start() doesn't bail with "Already running"
+    // but preserve intent to reconnect via a separate flag
+    const wasRunning = this.running;
     this.running = false;
     try {
       await this.start();
     } catch (err) {
       console.error(
-        "[transcription] Reconnect failed:",
+        `[transcription:${this.label}] Reconnect failed:`,
         (err as Error).message,
       );
+      // Restore running so scheduleReconnect doesn't bail on !this.running
+      if (wasRunning) this.running = true;
       this.scheduleReconnect();
     }
   }

@@ -191,15 +191,32 @@ export class RoomManager implements IRoomManager {
 
     let audioFlowing = false;
     ws.on("message", (data) => {
-      if (typeof data !== "string") {
-        if (!audioFlowing) {
-          console.log(`[room] Audio flowing for ${userId}`);
-          audioFlowing = true;
+      if (typeof data === "string") {
+        try {
+          const msg = JSON.parse(data) as { type: string };
+          if (msg.type === "mute") {
+            console.log(
+              `[room] Mute signal from ${userId}, flushing transcription`,
+            );
+            slot.transcription.flush();
+          } else if (msg.type === "unmute") {
+            console.log(
+              `[room] Unmute signal from ${userId}, resuming transcription`,
+            );
+            slot.transcription.resumeFromMute();
+          }
+        } catch {
+          /* ignore malformed JSON */
         }
-        const buffer = Buffer.from(data as ArrayBuffer);
-        slot.audio.feedRawAudio(buffer);
-        room.audioRelay.relayAudio(userId, buffer);
+        return;
       }
+      if (!audioFlowing) {
+        console.log(`[room] Audio flowing for ${userId}`);
+        audioFlowing = true;
+      }
+      const buffer = Buffer.from(data as ArrayBuffer);
+      slot.audio.feedRawAudio(buffer);
+      room.audioRelay.relayAudio(userId, buffer);
     });
 
     ws.on("close", () => {
@@ -386,10 +403,12 @@ export class RoomManager implements IRoomManager {
       maxTokens: 4096,
     });
 
-    // Per-user TriggerDetector
+    // Per-user TriggerDetector (with LLM smart detection fallback)
     const triggerDetector = new TriggerDetector({
       keyword: this.config.trigger.keyword,
       userId,
+      llmProvider: llmProvider,
+      llmModel: this.config.llm.model,
     });
 
     // Wire per-user trigger events
@@ -620,13 +639,17 @@ export class RoomManager implements IRoomManager {
     });
   }
 
-  private readonly DUAL_KEYWORD_TIMEOUT_MS = 10_000;
+  // 20s window to accommodate smart detection interval (10s polling per user)
+  private readonly DUAL_KEYWORD_TIMEOUT_MS = 20_000;
 
   private handleUserTrigger(
     room: Room,
     userId: UserId,
     event: TriggerEvent,
   ): void {
+    console.log(
+      `[room] handleUserTrigger: user=${userId}, type=${event.type}, confidence=${event.confidence}, room=${room.id}`,
+    );
     // Guard: if negotiation already active or trigger in progress, ignore
     if (room.negotiation?.getActiveNegotiation() || room.triggerInProgress) {
       console.log(

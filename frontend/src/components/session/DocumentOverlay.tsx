@@ -6,14 +6,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useDocumentStore, type LegalDocument } from "@/stores/document-store";
+import { useDocumentStore, type SavedContract } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
 import { ContractView } from "@/components/contracts/ContractView";
 
 interface DocumentOverlayProps {
   panelWs: React.RefObject<WebSocket | null>;
   readOnly?: boolean;
-  externalDoc?: LegalDocument;
+  externalDoc?: SavedContract;
   onClose?: () => void;
 }
 
@@ -28,6 +28,7 @@ export function DocumentOverlay({
   const hideOverlay = useDocumentStore((s) => s.hideOverlay);
   const addSignature = useDocumentStore((s) => s.addSignature);
   const storeMilestones = useDocumentStore((s) => s.milestones);
+  const storePaymentEvents = useDocumentStore((s) => s.paymentEvents);
   const userId = useSessionStore((s) => s.userId);
   const signedRef = useRef(false);
 
@@ -46,6 +47,11 @@ export function DocumentOverlay({
   const milestones = externalDoc
     ? new Map((externalDoc.milestones ?? []).map((ms) => [ms.id, ms]))
     : storeMilestones;
+
+  // Payment events: from saved contract or live store
+  const paymentEvents = externalDoc
+    ? externalDoc.paymentEvents
+    : storePaymentEvents;
 
   if (!doc) return null;
 
@@ -117,6 +123,7 @@ export function DocumentOverlay({
           <ContractView
             doc={doc}
             milestones={milestones}
+            paymentEvents={paymentEvents}
             readOnly={readOnly}
             userId={userId ?? undefined}
             providerId={doc.providerId}

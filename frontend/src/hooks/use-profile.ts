@@ -67,6 +67,7 @@ const MAX_CONTRACT_SIZE = 51200;
 export function saveContract(
   doc: unknown,
   transcript?: { speaker: string; text: string; timestamp: number }[],
+  paymentEvents?: unknown[],
 ): void {
   try {
     const contracts = JSON.parse(
@@ -74,22 +75,26 @@ export function saveContract(
     ) as Record<string, unknown>[];
     const docObj = doc as Record<string, unknown> & { id: string };
 
-    // Attach transcript if provided and not already present
-    const toSave =
-      transcript && transcript.length > 0
-        ? { ...docObj, conversationHistory: transcript }
-        : docObj;
+    // Attach transcript and payment events if provided
+    const toSave = {
+      ...docObj,
+      ...(transcript && transcript.length > 0
+        ? { conversationHistory: transcript }
+        : {}),
+      ...(paymentEvents && paymentEvents.length > 0 ? { paymentEvents } : {}),
+    };
 
     const idx = contracts.findIndex(
       (c) => (c as { id: string }).id === docObj.id,
     );
     if (idx >= 0) {
-      // Preserve existing conversation history on updates
+      // Preserve existing fields on updates
       const existing = contracts[idx] as Record<string, unknown>;
       const merged = {
         ...toSave,
         conversationHistory:
           toSave.conversationHistory ?? existing.conversationHistory,
+        paymentEvents: toSave.paymentEvents ?? existing.paymentEvents,
       };
       const serialized = JSON.stringify(merged);
       if (serialized.length > MAX_CONTRACT_SIZE) return;

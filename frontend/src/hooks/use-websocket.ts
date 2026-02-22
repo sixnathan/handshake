@@ -9,6 +9,7 @@ import {
   useDocumentStore,
   type LegalDocument,
   type Milestone,
+  type PaymentEvent,
 } from "@/stores/document-store";
 import {
   useVerificationStore,
@@ -134,6 +135,9 @@ function handlePanelMessage(
   }
 }
 
+const STALE_PARTIAL_TIMEOUT_MS = 3000;
+const stalePartialTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 function handleTranscript(msg: Record<string, unknown>, userId: string): void {
   const entry = msg.entry as {
     speaker: string;
@@ -153,7 +157,25 @@ function handleTranscript(msg: Record<string, unknown>, userId: string): void {
       isLocal,
       isFinal: false,
     });
+
+    // Reset stale partial timer — promote to final if no update within 3s
+    const existing = stalePartialTimers.get(entry.speaker);
+    if (existing) clearTimeout(existing);
+    stalePartialTimers.set(
+      entry.speaker,
+      setTimeout(() => {
+        stalePartialTimers.delete(entry.speaker);
+        useTranscriptStore.getState().promoteStalePartial(entry.speaker);
+      }, STALE_PARTIAL_TIMEOUT_MS),
+    );
     return;
+  }
+
+  // Final arrived — cancel the stale partial timer for this speaker
+  const timer = stalePartialTimers.get(entry.speaker);
+  if (timer) {
+    clearTimeout(timer);
+    stalePartialTimers.delete(entry.speaker);
   }
 
   useTranscriptStore.getState().addFinal({
@@ -228,7 +250,12 @@ function handleDocument(msg: Record<string, unknown>): void {
     text: e.text,
     timestamp: e.timestamp,
   }));
-  saveContract(doc, history.length > 0 ? history : undefined);
+  const paymentEvents = useDocumentStore.getState().paymentEvents;
+  saveContract(
+    doc,
+    history.length > 0 ? history : undefined,
+    paymentEvents.length > 0 ? paymentEvents : undefined,
+  );
 
   useTimelineStore.getState().addNode({
     type: "doc",
@@ -327,6 +354,23 @@ function handleExecution(msg: Record<string, unknown>): void {
   if (text.length > 100) text = text.slice(0, 97) + "...";
 
   useTimelineStore.getState().addNode({ type, text, timestamp: Date.now() });
+
+  // Track non-signature execution steps as payment events
+  if (!isSign) {
+    const isEscrow = /escrow/i.test(step);
+    const paymentEvent: PaymentEvent = {
+      id: `exec_${Date.now()}`,
+      type: isEscrow ? "escrow_hold" : "execution",
+      timestamp: Date.now(),
+      status,
+      step,
+      details,
+      stripeMethod: isEscrow
+        ? "Manual-capture PaymentIntent (escrow)"
+        : "PaymentIntent with transfer_data",
+    };
+    useDocumentStore.getState().addPaymentEvent(paymentEvent);
+  }
 }
 
 function handlePaymentReceipt(msg: Record<string, unknown>): void {
@@ -334,6 +378,8 @@ function handlePaymentReceipt(msg: Record<string, unknown>): void {
   const status = msg.status as string;
   const description = (msg.description as string) ?? "Payment";
   const currency = (msg.currency as string) ?? "gbp";
+  const paymentIntentId = msg.paymentIntentId as string | undefined;
+  const recipient = msg.recipient as string | undefined;
 
   const symbol = currencySymbol(currency);
   const type: TimelineNodeType = status === "succeeded" ? "pay" : "reject";
@@ -341,6 +387,23 @@ function handlePaymentReceipt(msg: Record<string, unknown>): void {
   if (text.length > 100) text = text.slice(0, 97) + "...";
 
   useTimelineStore.getState().addNode({ type, text, timestamp: Date.now() });
+
+  const isEscrow = /escrow|hold/i.test(description);
+  const paymentEvent: PaymentEvent = {
+    id: paymentIntentId ?? `pr_${Date.now()}`,
+    type: isEscrow ? "escrow_hold" : "payment",
+    timestamp: Date.now(),
+    amount,
+    currency,
+    recipient,
+    status,
+    paymentIntentId,
+    description,
+    stripeMethod: isEscrow
+      ? "Manual-capture PaymentIntent (escrow)"
+      : "PaymentIntent with transfer_data",
+  };
+  useDocumentStore.getState().addPaymentEvent(paymentEvent);
 }
 
 function handleStatus(msg: Record<string, unknown>, userId: string): void {

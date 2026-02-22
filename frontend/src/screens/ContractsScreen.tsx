@@ -5,7 +5,7 @@ import { DocumentOverlay } from "@/components/session/DocumentOverlay";
 import { CriterionCheckbox } from "@/components/contracts/CriterionCheckbox";
 import { useSessionStore } from "@/stores/session-store";
 import { loadContracts, clearContracts } from "@/hooks/use-profile";
-import type { LegalDocument, Milestone } from "@/stores/document-store";
+import type { Milestone, SavedContract } from "@/stores/document-store";
 import { cn, currencySymbol, formatTime } from "@/lib/utils";
 import { MILESTONE_STATUS } from "@/lib/milestone-config";
 import { LineItemRow } from "@/components/contracts/LineItemRow";
@@ -18,10 +18,6 @@ import {
   Clock,
   Shield,
 } from "lucide-react";
-
-interface SavedContract extends LegalDocument {
-  conversationHistory?: { speaker: string; text: string; timestamp: number }[];
-}
 
 export function ContractsScreen() {
   const backToSetup = useSessionStore((s) => s.backToSetup);

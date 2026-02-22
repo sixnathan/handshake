@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { LegalDocument, Milestone } from "@/stores/document-store";
+import type {
+  LegalDocument,
+  Milestone,
+  PaymentEvent,
+} from "@/stores/document-store";
 import { cn, currencySymbol, markdownToHtml } from "@/lib/utils";
+import { PaymentsSection } from "@/components/contracts/PaymentsSection";
 import {
   MILESTONE_STATUS,
   PAYMENT_TYPE_CONFIG,
@@ -22,6 +27,7 @@ import {
 interface ContractViewProps {
   doc: LegalDocument;
   milestones: Map<string, Milestone>;
+  paymentEvents?: PaymentEvent[];
   readOnly?: boolean;
   userId?: string;
   providerId?: string;
@@ -37,6 +43,7 @@ interface ContractViewProps {
 export function ContractView({
   doc,
   milestones,
+  paymentEvents,
   readOnly = false,
   userId,
   providerId,
@@ -127,6 +134,13 @@ export function ContractView({
           onSign={onSign}
         />
       </div>
+
+      {/* ── Payment Transactions ─────────────────── */}
+      {paymentEvents && paymentEvents.length > 0 && (
+        <div className="border-t border-separator pt-5">
+          <PaymentsSection paymentEvents={paymentEvents} />
+        </div>
+      )}
 
       {/* ── Raw Document Toggle ─────────────────── */}
       <section className="border-t border-separator pt-4">

@@ -405,7 +405,7 @@ describe("AgentService Module", () => {
 
       const snapshot = mockLLM.createMessage.mock.calls[0][0].__messageSnapshot;
       const userMsg = snapshot.find((m: any) => m.role === "user");
-      expect(userMsg.content).toContain("PROPOSAL ACCEPTED");
+      expect(userMsg.content).toContain("ACCEPTED BY THE OTHER PARTY");
     });
 
     it("should handle reject message", async () => {
@@ -419,7 +419,7 @@ describe("AgentService Module", () => {
 
       const snapshot = mockLLM.createMessage.mock.calls[0][0].__messageSnapshot;
       const userMsg = snapshot.find((m: any) => m.role === "user");
-      expect(userMsg.content).toContain("PROPOSAL REJECTED");
+      expect(userMsg.content).toContain("REJECTED BY THE OTHER PARTY");
       expect(userMsg.content).toContain("Can't afford it");
     });
 

@@ -114,7 +114,7 @@ You communicate with the other party's agent through tool calls (not natural lan
 This is the universal lifecycle. Every session follows these phases in order:
 
 PHASE 1 LISTENING: The system accumulates transcript silently. You are NOT active. No LLM calls are made.
-PHASE 2 TRIGGER: Both participants say the trigger word within 10 seconds. You receive a [NEGOTIATION TRIGGERED] message with the full conversation context. You are now active.
+PHASE 2 TRIGGER: Both participants must say the trigger word "handshake" within 10 seconds of each other. When both people have said "handshake" (detected by keyword matching or LLM-based smart detection every 10 seconds), the system activates both agents. You receive a [NEGOTIATION TRIGGERED] message with the full conversation context. You are now active.
 PHASE 3 PROPOSAL: The provider agent creates a structured proposal via \`analyze_and_propose\` with line items, factor-based pricing, and milestones. The client agent waits.
 PHASE 4 NEGOTIATION: The evaluator uses \`evaluate_proposal\` to accept, counter, or reject. Maximum 5 rounds, 30 seconds per round.
 PHASE 5 DOCUMENT: The proposer generates a legal document via \`generate_document\` containing all agreed terms, milestones, and payment schedule.
@@ -297,27 +297,37 @@ ${conversationContext}`;
 
     switch (message.type) {
       case "agent_proposal":
-        content = `[INCOMING PROPOSAL from ${message.fromAgent}]
+        content = `[INCOMING PROPOSAL — SENT TO YOU BY THE OTHER PARTY'S AGENT]
+The other party's agent (${message.fromAgent}) has created a proposal for you to evaluate.
+This is NOT your proposal — it was sent TO you. You must respond using the evaluate_proposal tool.
+DO NOT call analyze_and_propose — that is only for creating new proposals, not responding.
+
+Proposal details:
 ${JSON.stringify(message.proposal, null, 2)}
 
-Use the evaluate_proposal tool to assess this proposal against your preferences and decide to accept, counter, or reject.`;
+Use the evaluate_proposal tool now to accept, counter, or reject this proposal based on your user's preferences.`;
         break;
 
       case "agent_counter":
-        content = `[COUNTER-PROPOSAL from ${message.fromAgent}]
-Reason: ${message.reason}
+        content = `[COUNTER-PROPOSAL — SENT TO YOU BY THE OTHER PARTY'S AGENT]
+The other party's agent (${message.fromAgent}) has counter-proposed.
+Reason for counter: ${message.reason}
+
+Counter-proposal details:
 ${JSON.stringify(message.proposal, null, 2)}
 
-Use the evaluate_proposal tool to assess this counter-proposal.`;
+Use the evaluate_proposal tool to accept, counter, or reject this counter-proposal.`;
         break;
 
       case "agent_accept":
-        content = `[PROPOSAL ACCEPTED by ${message.fromAgent}]
-The other party's agent has accepted your proposal. Inform your user.`;
+        content = `[YOUR PROPOSAL WAS ACCEPTED BY THE OTHER PARTY'S AGENT]
+The other party's agent (${message.fromAgent}) has accepted your proposal. The deal is agreed.
+Inform your user that the agreement has been reached.`;
         break;
 
       case "agent_reject":
-        content = `[PROPOSAL REJECTED by ${message.fromAgent}]
+        content = `[YOUR PROPOSAL WAS REJECTED BY THE OTHER PARTY'S AGENT]
+The other party's agent (${message.fromAgent}) has rejected your proposal.
 Reason: ${message.reason}
 Inform your user that the negotiation was not successful.`;
         break;

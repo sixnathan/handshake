@@ -5,6 +5,8 @@ interface TranscriptBubbleProps {
   timestamp: number;
   isLocal: boolean;
   isPartial: boolean;
+  variant?: "column" | "chat";
+  speaker?: string;
 }
 
 export function TranscriptBubble({
@@ -12,7 +14,48 @@ export function TranscriptBubble({
   timestamp,
   isLocal,
   isPartial,
+  variant = "column",
+  speaker,
 }: TranscriptBubbleProps) {
+  if (variant === "chat") {
+    return (
+      <div
+        className={cn(
+          "mb-3 flex flex-col",
+          isLocal ? "items-end" : "items-start",
+        )}
+      >
+        {speaker && !isPartial && (
+          <span
+            className={cn(
+              "mb-0.5 px-1 text-[10px] font-medium uppercase tracking-wide",
+              isLocal ? "text-accent-blue" : "text-accent-green",
+            )}
+          >
+            {speaker}
+          </span>
+        )}
+        <div
+          className={cn(
+            "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+            isPartial
+              ? "bg-surface-primary italic text-text-tertiary"
+              : isLocal
+                ? "bg-accent-blue/15 text-text-primary"
+                : "bg-surface-tertiary text-text-primary",
+          )}
+        >
+          <span>{isPartial ? text + "..." : text}</span>
+          {!isPartial && (
+            <span className="ml-2 inline-block text-[10px] tabular-nums text-text-tertiary">
+              {formatTime(timestamp)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(

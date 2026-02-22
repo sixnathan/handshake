@@ -17,6 +17,7 @@ interface TranscriptActions {
   addFinal: (entry: TranscriptEntry) => void;
   setPartial: (speaker: string, entry: TranscriptEntry) => void;
   clearPartial: (speaker: string) => void;
+  promoteStalePartial: (speaker: string) => void;
   reset: () => void;
 }
 
@@ -40,6 +41,18 @@ export const useTranscriptStore = create<TranscriptState & TranscriptActions>()(
       set((s) => ({
         partials: removeKey(s.partials, speaker),
       })),
+
+    promoteStalePartial: (speaker) =>
+      set((s) => {
+        const partial = s.partials.get(speaker);
+        if (!partial || !partial.text.trim()) {
+          return { partials: removeKey(s.partials, speaker) };
+        }
+        return {
+          entries: [...s.entries, { ...partial, isFinal: true }],
+          partials: removeKey(s.partials, speaker),
+        };
+      }),
 
     reset: () => set({ entries: [], partials: new Map() }),
   }),

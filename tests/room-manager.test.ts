@@ -1437,7 +1437,7 @@ describe("RoomManager", () => {
       const room = (rm as any).rooms.get("room-1");
       expect(room.pendingTrigger).not.toBeNull();
 
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(20_000);
 
       expect(room.pendingTrigger).toBeNull();
       expect(room.pendingTriggerTimeout).toBeNull();

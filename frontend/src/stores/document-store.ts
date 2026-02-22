@@ -50,6 +50,26 @@ export interface Milestone {
   maxAmount?: number;
 }
 
+export interface PaymentEvent {
+  id: string;
+  type: "payment" | "escrow_hold" | "execution";
+  timestamp: number;
+  amount?: number;
+  currency?: string;
+  recipient?: string;
+  status: string;
+  paymentIntentId?: string;
+  description?: string;
+  step?: string;
+  details?: string;
+  stripeMethod?: string;
+}
+
+export interface SavedContract extends LegalDocument {
+  paymentEvents?: PaymentEvent[];
+  conversationHistory?: { speaker: string; text: string; timestamp: number }[];
+}
+
 export interface LegalDocument {
   id: string;
   title: string;
@@ -83,6 +103,7 @@ export interface LegalDocument {
 interface DocumentState {
   currentDocument: LegalDocument | null;
   milestones: Map<string, Milestone>;
+  paymentEvents: PaymentEvent[];
   bottomSheetVisible: boolean;
   overlayVisible: boolean;
 }
@@ -92,6 +113,7 @@ interface DocumentActions {
   addSignature: (userId: string) => void;
   setFullySigned: () => void;
   updateMilestone: (milestone: Milestone) => void;
+  addPaymentEvent: (event: PaymentEvent) => void;
   showBottomSheet: () => void;
   hideBottomSheet: () => void;
   showOverlay: () => void;
@@ -103,6 +125,7 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
   (set) => ({
     currentDocument: null,
     milestones: new Map(),
+    paymentEvents: [],
     bottomSheetVisible: false,
     overlayVisible: false,
 
@@ -147,6 +170,9 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
         milestones: new Map(s.milestones).set(milestone.id, milestone),
       })),
 
+    addPaymentEvent: (event) =>
+      set((s) => ({ paymentEvents: [...s.paymentEvents, event] })),
+
     showBottomSheet: () => set({ bottomSheetVisible: true }),
     hideBottomSheet: () => set({ bottomSheetVisible: false }),
     showOverlay: () => set({ overlayVisible: true }),
@@ -155,6 +181,7 @@ export const useDocumentStore = create<DocumentState & DocumentActions>()(
       set({
         currentDocument: null,
         milestones: new Map(),
+        paymentEvents: [],
         bottomSheetVisible: false,
         overlayVisible: false,
       }),
