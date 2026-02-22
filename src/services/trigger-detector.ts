@@ -66,14 +66,13 @@ export class TriggerDetector extends EventEmitter implements ITriggerDetector {
       this.recentTranscripts = this.recentTranscripts.slice(excess);
     }
 
-    if (entry.isFinal) {
-      const matched = this.keywordPattern.test(entry.text);
-      console.log(
-        `[trigger:${this.config.userId}] keyword check: pattern=${this.keywordPattern.source}, matched=${matched}`,
-      );
-      if (matched) {
-        this.checkKeywordTrigger(entry.speaker);
-      }
+    // Check BOTH partials and finals for keyword — ElevenLabs finals are slow
+    const matched = this.keywordPattern.test(entry.text);
+    console.log(
+      `[trigger:${this.config.userId}] keyword check (${entry.isFinal ? "final" : "partial"}): matched=${matched}, text="${entry.text}"`,
+    );
+    if (matched) {
+      this.checkKeywordTrigger(entry.speaker);
     }
   }
 

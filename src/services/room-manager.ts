@@ -451,17 +451,22 @@ export class RoomManager implements IRoomManager {
     });
 
     transcription.on("partial", (partial: PartialTranscript) => {
+      const partialEntry = {
+        id: `partial-${userId}`,
+        speaker: userId,
+        text: partial.text,
+        timestamp: Date.now(),
+        isFinal: false,
+        source: "local" as const,
+      };
+
       this.panelEmitter.broadcast(room.id, {
         panel: "transcript",
-        entry: {
-          id: `partial-${userId}`,
-          speaker: userId,
-          text: partial.text,
-          timestamp: Date.now(),
-          isFinal: false,
-          source: "local" as const,
-        },
+        entry: partialEntry,
       });
+
+      // Feed partials to trigger detector — ElevenLabs finals are slow
+      triggerDetector.feedTranscript(partialEntry);
     });
 
     let monzo: MonzoService | null = null;
