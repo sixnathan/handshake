@@ -21,9 +21,16 @@ export function TimelinePanel() {
           {/* Vertical line */}
           <div className="absolute bottom-0 left-[22px] top-0 w-0.5 bg-separator" />
           {nodes.length === 0 && (
-            <p className="py-12 text-center text-sm text-text-tertiary">
-              Waiting for events...
-            </p>
+            <div className="flex flex-col items-center gap-2 py-12">
+              <div className="flex items-center gap-1.5">
+                <span className="size-2 animate-pulse rounded-full bg-accent-blue" />
+                <span className="size-2 animate-pulse rounded-full bg-accent-blue [animation-delay:200ms]" />
+                <span className="size-2 animate-pulse rounded-full bg-accent-blue [animation-delay:400ms]" />
+              </div>
+              <p className="text-sm text-text-tertiary">
+                Listening for agreement...
+              </p>
+            </div>
           )}
           {nodes.map((node, i) => (
             <TimelineNodeItem

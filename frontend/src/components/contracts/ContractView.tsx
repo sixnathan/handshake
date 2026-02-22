@@ -723,10 +723,13 @@ function SignaturesSection({
       )}
 
       {isFullySigned && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-accent-green/20 bg-accent-green/5 p-3">
-          <CheckCircle2 className="size-4 text-accent-green" />
-          <p className="text-sm font-medium text-accent-green">
-            Agreement fully signed and active
+        <div className="mt-3 rounded-lg border border-accent-green/30 bg-gradient-to-r from-accent-green/10 to-accent-blue/10 p-4 text-center">
+          <CheckCircle2 className="mx-auto mb-1.5 size-6 text-accent-green" />
+          <p className="text-sm font-bold text-accent-green">
+            Agreement Active
+          </p>
+          <p className="mt-0.5 text-[11px] text-text-tertiary">
+            All parties have signed — this agreement is now binding
           </p>
         </div>
       )}

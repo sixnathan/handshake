@@ -39,9 +39,12 @@ export function TranscriptColumn({ label, isLocal }: TranscriptColumnProps) {
       <ScrollArea className="flex-1 bg-surface-tertiary">
         <div className="p-3">
           {entries.length === 0 && partials.length === 0 && (
-            <p className="py-12 text-center text-sm text-text-tertiary">
-              Waiting for speech...
-            </p>
+            <div className="flex flex-col items-center gap-2 py-12">
+              <span className="size-2 animate-pulse rounded-full bg-text-tertiary" />
+              <p className="text-sm text-text-tertiary">
+                Waiting for speech...
+              </p>
+            </div>
           )}
           {entries.map((entry, i) => (
             <TranscriptBubble
