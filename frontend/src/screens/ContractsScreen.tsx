@@ -273,7 +273,14 @@ function ContractCard({
                 return (
                   <div
                     key={ms.id}
-                    className="rounded-lg border border-separator bg-surface-tertiary p-3"
+                    className={cn(
+                      "rounded-lg border p-3 transition-colors",
+                      ms.status === "completed"
+                        ? "border-accent-green/20 bg-accent-green/5"
+                        : ms.status === "failed"
+                          ? "border-accent-red/20 bg-accent-red/5"
+                          : "border-separator bg-surface-tertiary",
+                    )}
                   >
                     {/* Milestone header */}
                     <div className="flex items-start justify-between gap-3">
@@ -336,6 +343,32 @@ function ContractCard({
                         <span className="text-[10px] text-text-tertiary">
                           {ms.verificationMethod}
                         </span>
+                      </div>
+                    )}
+
+                    {/* Verification result (compact) */}
+                    {ms.verificationResult && (
+                      <div
+                        className={cn(
+                          "mt-2 ml-6 rounded border px-2 py-1.5 text-[11px]",
+                          ms.verificationResult.outcome === "passed"
+                            ? "border-accent-green/30 bg-accent-green/5 text-accent-green"
+                            : ms.verificationResult.outcome === "failed"
+                              ? "border-accent-red/30 bg-accent-red/5 text-accent-red"
+                              : "border-accent-orange/30 bg-accent-orange/5 text-accent-orange",
+                        )}
+                      >
+                        <span className="font-bold uppercase">
+                          {ms.verificationResult.outcome}
+                        </span>
+                        {ms.verificationResult.verifiedAmount !== undefined && (
+                          <span className="ml-2 text-text-secondary">
+                            {currency}
+                            {(
+                              ms.verificationResult.verifiedAmount / 100
+                            ).toFixed(2)}
+                          </span>
+                        )}
                       </div>
                     )}
 
