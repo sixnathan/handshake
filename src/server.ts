@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import Stripe from "stripe";
 import type { AppConfig } from "./types.js";
 import { RoomManager } from "./services/room-manager.js";
 import { PanelEmitter } from "./services/panel-emitter.js";
@@ -50,11 +51,53 @@ export function startWebServer(config: AppConfig): void {
   const profileManager = new ProfileManager();
   const roomManager = new RoomManager(config, panelEmitter, profileManager);
 
+  const stripe = new Stripe(config.stripe.secretKey);
+
   const server = createServer(async (req, res) => {
     // Health endpoint
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    // POST /api/release-escrow — capture a held PaymentIntent (escrow)
+    if (req.url === "/api/release-escrow" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", async () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            paymentIntentId?: string;
+            amount?: number;
+          };
+          if (
+            !body.paymentIntentId ||
+            typeof body.paymentIntentId !== "string"
+          ) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "paymentIntentId required" }));
+            return;
+          }
+
+          const params: Stripe.PaymentIntentCaptureParams = {};
+          if (body.amount !== undefined) {
+            params.amount_to_capture = body.amount;
+          }
+
+          await stripe.paymentIntents.capture(body.paymentIntentId, params);
+          console.log(
+            `[api] Escrow captured: ${body.paymentIntentId}${body.amount ? ` (${body.amount})` : ""}`,
+          );
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[api] Escrow capture failed: ${message}`);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: message }));
+        }
+      });
       return;
     }
 

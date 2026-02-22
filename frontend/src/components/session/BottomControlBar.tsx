@@ -1,7 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/stores/session-store";
 import { useDocumentStore } from "@/stores/document-store";
-import { Mic, MicOff, Volume2, VolumeOff, FileCheck } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeOff,
+  FileCheck,
+  LogOut,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function BottomControlBar() {
@@ -10,6 +17,7 @@ export function BottomControlBar() {
   const audioRelay = useSessionStore((s) => s.audioRelay);
   const toggleAudioRelay = useSessionStore((s) => s.toggleAudioRelay);
   const sessionStatus = useSessionStore((s) => s.sessionStatus);
+  const reset = useSessionStore((s) => s.reset);
 
   const hasDoc = useDocumentStore((s) => s.currentDocument !== null);
   const showBottomSheet = useDocumentStore((s) => s.showBottomSheet);
@@ -66,6 +74,14 @@ export function BottomControlBar() {
             <FileCheck className="size-5" />
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-10 rounded-full border-accent-red/30 text-accent-red"
+          onClick={reset}
+        >
+          <LogOut className="size-5" />
+        </Button>
       </div>
     </div>
   );

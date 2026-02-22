@@ -9,6 +9,7 @@ import {
   Mic,
   MicOff,
   FileCheck,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ export function TopBar() {
   const micMuted = useSessionStore((s) => s.micMuted);
   const toggleMicMute = useSessionStore((s) => s.toggleMicMute);
   const toggleExpanded = useSessionStore((s) => s.toggleExpanded);
+  const reset = useSessionStore((s) => s.reset);
 
   const hasDoc = useDocumentStore((s) => s.currentDocument !== null);
   const showBottomSheet = useDocumentStore((s) => s.showBottomSheet);
@@ -116,6 +118,15 @@ export function TopBar() {
         >
           Details
           <ChevronDown className="ml-1 size-3" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="border-accent-red/30 text-accent-red hover:bg-accent-red/10"
+          onClick={reset}
+          title="Leave room"
+        >
+          <LogOut className="size-4" />
         </Button>
       </div>
     </div>

@@ -122,3 +122,41 @@ export function loadContracts(): unknown[] {
 export function clearContracts(): void {
   localStorage.removeItem(CONTRACTS_KEY);
 }
+
+/** Update a milestone's status in a saved contract (localStorage). */
+export function updateMilestoneStatus(
+  documentId: string,
+  milestoneId: string,
+  status: string,
+): void {
+  try {
+    const contracts = JSON.parse(
+      localStorage.getItem(CONTRACTS_KEY) ?? "[]",
+    ) as Record<string, unknown>[];
+    const idx = contracts.findIndex(
+      (c) => (c as { id: string }).id === documentId,
+    );
+    if (idx < 0) return;
+
+    const contract = contracts[idx] as Record<string, unknown>;
+    const milestones = contract.milestones as
+      | Array<{ id: string; status: string; completedAt?: number }>
+      | undefined;
+    if (!milestones) return;
+
+    const msIdx = milestones.findIndex((m) => m.id === milestoneId);
+    if (msIdx < 0) return;
+
+    const existing = milestones[msIdx]!;
+    milestones[msIdx] = {
+      ...existing,
+      id: existing.id,
+      status,
+      completedAt: Date.now(),
+    };
+    contracts[idx] = { ...contract, milestones };
+    localStorage.setItem(CONTRACTS_KEY, JSON.stringify(contracts));
+  } catch {
+    /* ignore */
+  }
+}

@@ -8,7 +8,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDocumentStore, type SavedContract } from "@/stores/document-store";
 import { useSessionStore } from "@/stores/session-store";
-import { loadProfile } from "@/hooks/use-profile";
+import { loadProfile, updateMilestoneStatus } from "@/hooks/use-profile";
 import { ContractView } from "@/components/contracts/ContractView";
 
 interface DocumentOverlayProps {
@@ -83,14 +83,41 @@ export function DocumentOverlay({
   }
 
   function handleConfirmMilestone(milestoneId: string) {
-    if (!panelWs.current || !doc) return;
-    panelWs.current.send(
-      JSON.stringify({
-        type: "confirm_milestone",
-        milestoneId,
-        documentId: doc.id,
+    if (!doc) return;
+
+    // Live session — use WebSocket
+    if (panelWs.current) {
+      panelWs.current.send(
+        JSON.stringify({
+          type: "confirm_milestone",
+          milestoneId,
+          documentId: doc.id,
+        }),
+      );
+      return;
+    }
+
+    // Saved contract (no WebSocket) — call HTTP endpoint to capture escrow
+    const milestone = milestones.get(milestoneId);
+    if (!milestone?.escrowHoldId) return;
+
+    fetch("/api/release-escrow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentIntentId: milestone.escrowHoldId,
+        amount: milestone.amount,
       }),
-    );
+    })
+      .then((r) => r.json())
+      .then((result: { success?: boolean; error?: string }) => {
+        if (result.success) {
+          updateMilestoneStatus(doc.id, milestoneId, "completed");
+        } else {
+          console.error("[escrow] Release failed:", result.error);
+        }
+      })
+      .catch((err) => console.error("[escrow] Request failed:", err));
   }
 
   function handleProposeMilestoneAmount(milestoneId: string, amount: number) {
