@@ -163,7 +163,14 @@ function ContractCard({
   const isFullySigned = contract.status === "fully_signed";
 
   return (
-    <div className="rounded-xl border border-separator bg-surface-secondary p-5">
+    <div
+      className={cn(
+        "rounded-xl border bg-surface-secondary p-5",
+        isFullySigned
+          ? "border-l-[3px] border-accent-green/30 border-l-accent-green"
+          : "border-separator",
+      )}
+    >
       {/* Top row */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -211,6 +218,13 @@ function ContractCard({
         </div>
       )}
 
+      {/* Factor summary */}
+      {contract.terms.factorSummary && (
+        <p className="mt-3 rounded-lg border border-accent-blue/20 bg-accent-blue/5 px-3 py-2 text-xs leading-relaxed text-text-secondary">
+          {contract.terms.factorSummary}
+        </p>
+      )}
+
       {/* Milestones */}
       {contract.milestones && contract.milestones.length > 0 && (
         <CardMilestonesBlock
@@ -253,19 +267,31 @@ function ContractCard({
       {/* Conversation history (collapsible) */}
       {historyExpanded && hasHistory && (
         <div className="mt-3 max-h-60 space-y-2 overflow-y-auto rounded-lg border border-separator bg-surface-primary p-3">
-          {contract.conversationHistory!.map((entry, i) => (
-            <div key={i} className="text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-accent-blue">
-                  {entry.speaker}
-                </span>
-                <span className="text-text-tertiary">
-                  {formatTime(entry.timestamp)}
-                </span>
+          {contract.conversationHistory!.map((entry, i) => {
+            const speakerIndex = contract.parties.findIndex(
+              (p) => p.userId === entry.speaker || p.name === entry.speaker,
+            );
+            const speakerColor =
+              speakerIndex === 0
+                ? "text-accent-blue"
+                : speakerIndex === 1
+                  ? "text-accent-green"
+                  : "text-accent-orange";
+
+            return (
+              <div key={i} className="text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("font-semibold", speakerColor)}>
+                    {entry.speaker}
+                  </span>
+                  <span className="text-text-tertiary">
+                    {formatTime(entry.timestamp)}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-text-secondary">{entry.text}</p>
               </div>
-              <p className="mt-0.5 text-text-secondary">{entry.text}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
